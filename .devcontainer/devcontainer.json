@@ -1,1 +1,20 @@
 
+{
+  "name": "Data Science Environment",
+  // 使用微软官方预装了 Python 的镜像
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  // 配置 VS Code 的插件，这样一进入环境就能用 Jupyter
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+
+  // 容器创建后自动执行的命令，用于安装库
+  "postCreateCommand": "pip install -r requirements.txt"
+}
