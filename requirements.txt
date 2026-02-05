@@ -1,3 +1,5 @@
+iprogress
+ipywidgets
 pandas
 numpy
 pyarrow
