@@ -1,4 +1,4 @@
-name: Scheduled Notebook Runner
+name: Scheduled update 
 
 on:
   schedule:
