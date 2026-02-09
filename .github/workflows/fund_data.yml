@@ -3,7 +3,7 @@ name: Scheduled update
 on:
   schedule:
     # 这里的 cron 表达式代表每天北京时间早上 8:00 (UTC 0:00) 执行
-    - cron: '0 0 * * *'
+    - cron: '15 00 * * 1-5'
   workflow_dispatch: # 允许你手动点击按钮随时测试执行
 
 jobs:
