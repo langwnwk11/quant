@@ -6,3 +6,5 @@ pyarrow
 ipykernel
 baostock
 akshare
+h5py
+PyDrive2
