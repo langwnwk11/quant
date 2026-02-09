@@ -1,4 +1,4 @@
-name: Scheduled update 
+name: update_factor_fund_stock
 
 on:
   schedule:
