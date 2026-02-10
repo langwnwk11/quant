@@ -1,48 +1,39 @@
-name: Upload to Google Drive
+name: Rclone Google Drive Test
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch: 
+  workflow_dispatch: # 允许手动点击运行进行测试
 
 jobs:
-  upload-job:
+  test-connection:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Prepare Files
-        run: |
-          mkdir -p my_backup
-          echo "Backup created at $(date)" > my_backup/backup_log.txt
-          echo "This is a test file" > my_backup/test.txt
-
       - name: Install Rclone
-        run: sudo apt-get install -y rclone
-
-      - name: Setup Rclone Configuration
-        env:
-          SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
         run: |
-          mkdir -p ~/.config/rclone/
-          # 使用双引号包裹环境变量，确保 JSON 的换行和引号被正确保留
-          printf "%s" "$SA_JSON" > ~/.config/rclone/sa.json
-          
-          # 创建 rclone.conf
+          sudo apt-get update
+          sudo apt-get install -y rclone
+
+      - name: Setup Rclone Config
+        run: |
+          # 创建配置目录
+          mkdir -p ~/.config/rclone
+          # 将 Secret 写入配置文件
           cat << EOF > ~/.config/rclone/rclone.conf
-          [gdrive]
-          type = drive
-          service_account_file = /home/runner/.config/rclone/sa.json
-          server_side_across_configs = true
+          ${{ secrets.RCLONE_CONFIG_DATA }}
           EOF
 
-      - name: Execute Rclone Upload
+      - name: Test 1 - List Directories
         run: |
-          # 核心命令
-          # --drive-root-folder-id 确保文件直接进入你共享过的那个文件夹
-          # --drive-acknowledge-abuse 防止某些大文件因为 Google 扫描机制被拦截
-          rclone copy ./my_backup gdrive,root_id="${{secrets.GDRIVE_FOLDER_ID}}": \
-            --drive-acknowledge-abuse \
-            -v
+          echo "正在连接 Google Drive..."
+          rclone lsd gdrive:
+          echo "目录列表获取成功！"
+
+      - name: Test 2 - Upload a Test File
+        run: |
+          echo "rclone 测试文件 - 运行时间: $(date)" > test-file.txt
+          echo "正在上传测试文件到网盘根目录..."
+          rclone copy test-file.txt gdrive:/ -v
+          echo "文件上传成功！请前往 Google Drive 查看 test-file.txt"
