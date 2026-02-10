@@ -27,11 +27,12 @@ jobs:
       - name: Setup Rclone with Service Account
         run: |
           mkdir -p ~/.config/rclone/
+          SA_JSON_DATA=$(echo "${{ secrets.GDRIVE_SERVICE_ACCOUNT }}" | base64 -d)
           # 直接利用 Secret 生成配置文件
           cat << EOF > ~/.config/rclone/rclone.conf
           [gdrive]
           type = drive
-          service_account_contents = ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          service_account_contents = $SA_JSON_DATA
           EOF
 
       - name: Upload Folder
