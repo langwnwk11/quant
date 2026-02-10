@@ -1,40 +1,42 @@
-name: Sync to Google Drive
+name: Upload Folder to GDrive
 
 on:
   push:
-    branches: [ main ]  # 当代码推送到 main 分支时触发
-  schedule:
-    - cron: '0 0 * * *'  # 每天凌晨自动运行一次
-  workflow_dispatch:      # 允许你在 Actions 页面手动点击按钮运行
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  upload:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 模拟生成一个包含多个文件的文件夹
+      - name: Prepare Folder
+        run: |
+          mkdir -p my_backup
+          echo "Content 1" > my_backup/file1.txt
+          echo "Content 2" > my_backup/file2.txt
+          mkdir -p my_backup/subfolder
+          echo "Nested content" > my_backup/subfolder/file3.txt
+
       - name: Install Rclone
         run: sudo apt-get install -y rclone
 
-      - name: Setup Rclone Config
+      - name: Setup Rclone with Service Account
         run: |
-          # 创建配置目录
-          mkdir -p ~/.config/rclone
-          # 将 Secret 写入配置文件
+          mkdir -p ~/.config/rclone/
+          # 直接利用 Secret 生成配置文件
           cat << EOF > ~/.config/rclone/rclone.conf
-          ${{ secrets.RCLONE_CONF }}
+          [gdrive]
+          type = drive
+          service_account_contents = ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
           EOF
 
-      - name: Generate or Prep Files
+      - name: Upload Folder
         run: |
-          # 假设你要保存的是名为 'my_data' 的文件夹
-          # 如果你的文件是任务生成的，请在这里写生成代码
-          mkdir -p my_data
-          echo "Sync Test at $(date)" > my_data/log.txt
-
-      - name: Rclone Sync to Google Drive
-        run: |
-          # 使用 copy 命令更安全，gdrive 是你在配置文件中定义的 [gdrive]
-          # Backup 是你 Google Drive 上的文件夹名
-          rclone copy ./my_data gdrive:Backup -v
+          # my_backup: 本地文件夹路径
+          # gdrive: rclone.conf 里的配置名
+          # 1abc123...: 你在 Google Drive 共享文件夹的 ID
+          rclone copy ./my_backup gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" --progress
