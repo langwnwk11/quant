@@ -3,7 +3,7 @@ name: Upload to Google Drive
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # 允许你在 GitHub 界面手动点击运行
+  workflow_dispatch: 
 
 jobs:
   upload-job:
@@ -13,7 +13,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --- 这一步模拟你要上传的文件夹，如果你的文件夹已存在，可以跳过 ---
       - name: Prepare Files
         run: |
           mkdir -p my_backup
@@ -25,18 +24,13 @@ jobs:
 
       - name: Setup Rclone Configuration
         env:
-          # 将 Secret 读入环境变量，防止 shell 转义
           SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
-
         run: |
-          # 1. 创建配置目录
           mkdir -p ~/.config/rclone/
-          # 使用 printf 确保内容被原封不动写入，不触发 shell 的特殊字符转义
+          # 使用双引号包裹环境变量，确保 JSON 的换行和引号被正确保留
           printf "%s" "$SA_JSON" > ~/.config/rclone/sa.json
-          # 验证一下 JSON 文件是否以 { 开头 (这条命令不会泄露你的 Secret)
-          head -c 1 ~/.config/rclone/sa.json && echo " (First character check)"
           
-          # 3. 创建 rclone.conf 并指向该 JSON 文件
+          # 创建 rclone.conf
           cat << EOF > ~/.config/rclone/rclone.conf
           [gdrive]
           type = drive
@@ -45,8 +39,10 @@ jobs:
 
       - name: Execute Rclone Upload
         run: |
-          # 参数说明：
-          # copy: 复制模式（不删除云端多余文件）
-          # --drive-root-folder-id: 指定上传到哪个文件夹（来自 Secret）
-          # -v: 显示详细日志，方便排查
-          rclone copy ./my_backup gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
+          # 核心命令
+          # --drive-root-folder-id 确保文件直接进入你共享过的那个文件夹
+          # --drive-acknowledge-abuse 防止某些大文件因为 Google 扫描机制被拦截
+          rclone copy ./my_backup gdrive: \
+            --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" \
+            --drive-acknowledge-abuse \
+            -v
