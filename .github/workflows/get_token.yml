@@ -35,6 +35,7 @@ jobs:
           [gdrive]
           type = drive
           service_account_file = /home/runner/.config/rclone/sa.json
+          server_side_across_configs = true
           EOF
 
       - name: Execute Rclone Upload
