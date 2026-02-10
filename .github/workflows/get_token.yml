@@ -1,14 +1,40 @@
-name: Exchange Token
-on: workflow_dispatch
+name: Sync to Google Drive
+
+on:
+  push:
+    branches: [ main ]  # 当代码推送到 main 分支时触发
+  schedule:
+    - cron: '0 0 * * *'  # 每天凌晨自动运行一次
+  workflow_dispatch:      # 允许你在 Actions 页面手动点击按钮运行
 
 jobs:
-  exchange:
+  deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Install Rclone
         run: sudo apt-get install -y rclone
-      - name: Get Final Token
+
+      - name: Setup Rclone Config
         run: |
-          # 请将下方的 YOUR_CODE_HERE 替换为你刚才从地址栏复制的 code
-          # 注意：code 里面如果有特殊字符，建议加引号
-          rclone authorize "drive" "4/0ASc3gC2S5eNp9JOTG-OptTaKDGcK6q9EvnvpztUEp8X0UdmWCKSqLc_2MWwhE8fbI72tnQ"
+          # 创建配置目录
+          mkdir -p ~/.config/rclone
+          # 将 Secret 写入配置文件
+          cat << EOF > ~/.config/rclone/rclone.conf
+          ${{ secrets.RCLONE_CONF }}
+          EOF
+
+      - name: Generate or Prep Files
+        run: |
+          # 假设你要保存的是名为 'my_data' 的文件夹
+          # 如果你的文件是任务生成的，请在这里写生成代码
+          mkdir -p my_data
+          echo "Sync Test at $(date)" > my_data/log.txt
+
+      - name: Rclone Sync to Google Drive
+        run: |
+          # 使用 copy 命令更安全，gdrive 是你在配置文件中定义的 [gdrive]
+          # Backup 是你 Google Drive 上的文件夹名
+          rclone copy ./my_data gdrive:Backup -v
