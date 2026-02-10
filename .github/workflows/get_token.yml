@@ -43,7 +43,6 @@ jobs:
           # 核心命令
           # --drive-root-folder-id 确保文件直接进入你共享过的那个文件夹
           # --drive-acknowledge-abuse 防止某些大文件因为 Google 扫描机制被拦截
-          rclone copy ./my_backup gdrive: \
-            --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" \
+          rclone copy ./my_backup gdrive,root_id="${{secrets.GDRIVE_FOLDER_ID}}": \
             --drive-acknowledge-abuse \
             -v
