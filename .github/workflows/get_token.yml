@@ -1,43 +1,50 @@
-name: Upload Folder to GDrive
+name: Upload to Google Drive
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: # 允许你在 GitHub 界面手动点击运行
 
 jobs:
-  upload:
+  upload-job:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 模拟生成一个包含多个文件的文件夹
-      - name: Prepare Folder
+      # --- 这一步模拟你要上传的文件夹，如果你的文件夹已存在，可以跳过 ---
+      - name: Prepare Files
         run: |
           mkdir -p my_backup
-          echo "Content 1" > my_backup/file1.txt
-          echo "Content 2" > my_backup/file2.txt
-          mkdir -p my_backup/subfolder
-          echo "Nested content" > my_backup/subfolder/file3.txt
+          echo "Backup created at $(date)" > my_backup/backup_log.txt
+          echo "This is a test file" > my_backup/test.txt
 
       - name: Install Rclone
         run: sudo apt-get install -y rclone
 
-      - name: Setup Rclone with Service Account
+      - name: Setup Rclone Configuration
+        env:
+          # 将 Secret 读入环境变量，防止 shell 转义
+          SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
         run: |
+          # 1. 创建配置目录
           mkdir -p ~/.config/rclone/
-          SA_JSON_DATA=$(echo "${{ secrets.GDRIVE_SERVICE_ACCOUNT }}" | base64 -d)
-          # 直接利用 Secret 生成配置文件
+
+          # 2. 将 JSON 写入独立文件
+          echo "$SA_JSON" > ~/.config/rclone/sa.json
+
+          # 3. 创建 rclone.conf 并指向该 JSON 文件
           cat << EOF > ~/.config/rclone/rclone.conf
           [gdrive]
           type = drive
-          service_account_contents = $SA_JSON_DATA
+          service_account_file = /home/runner/.config/rclone/sa.json
           EOF
 
-      - name: Upload Folder
+      - name: Execute Rclone Upload
         run: |
-          # my_backup: 本地文件夹路径
-          # gdrive: rclone.conf 里的配置名
-          # 1abc123...: 你在 Google Drive 共享文件夹的 ID
-          rclone copy ./my_backup gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" --progress
+          # 参数说明：
+          # copy: 复制模式（不删除云端多余文件）
+          # --drive-root-folder-id: 指定上传到哪个文件夹（来自 Secret）
+          # -v: 显示详细日志，方便排查
+          rclone copy ./my_backup gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
