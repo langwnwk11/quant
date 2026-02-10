@@ -1,0 +1,18 @@
+name: Get Rclone Token
+
+on:
+  workflow_dispatch: # 允许手动点击运行
+
+jobs:
+  get-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rclone
+        run: sudo apt-get install -y rclone
+
+      - name: Run Rclone Authorize
+        run: |
+          # 注意：这里我们使用 --grclone-noprompt 和本地授权模式的变体
+          # 实际上我们要模拟生成授权链接
+          echo "Please click the URL below to authorize:"
+          rclone authorize "drive" --os-allow-private-network=false
