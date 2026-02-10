@@ -11,4 +11,4 @@ jobs:
         run: |
           # 请将下方的 YOUR_CODE_HERE 替换为你刚才从地址栏复制的 code
           # 注意：code 里面如果有特殊字符，建议加引号
-          rclone authorize "drive" 4/0ASc3gC2S5eNp9JOTG-OptTaKDGcK6q9EvnvpztUEp8X0UdmWCKSqLc_2MWwhE8fbI72tnQ
+          rclone authorize "drive" "4/0ASc3gC2S5eNp9JOTG-OptTaKDGcK6q9EvnvpztUEp8X0UdmWCKSqLc_2MWwhE8fbI72tnQ"
