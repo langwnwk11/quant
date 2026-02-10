@@ -22,7 +22,7 @@ jobs:
           mkdir -p ~/.config/rclone
           # 将 Secret 写入配置文件
           cat << EOF > ~/.config/rclone/rclone.conf
-          ${{ secrets.RCLONE_CONFIG_DATA }}
+          ${{ secrets.RCLONE_CONF }}
           EOF
 
       - name: Test 1 - List Directories
