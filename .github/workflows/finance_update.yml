@@ -3,43 +3,58 @@ name: Financial Data Get&Sync
 on:
   schedule:
     # 每年7月第二个周一 00:00 UTC 运行
+    # 8-14日之间的周一即为第二个周一
     - cron: '0 0 8-14 7 1' 
-  workflow_dispatch: # 允许手动触发调试
+  workflow_dispatch: # 支持手动点击按钮触发，方便测试
 
 jobs:
   fetch_and_upload:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # 即使某一组失败，其他组也继续执行
       matrix:
-        # 矩阵轮询：定义 10 个并发组 (0-9)
         group: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # 开启缓存加速后续运行
 
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Fetch Data
+      - name: Fetch Financial Data
+        # 运行 Python 脚本，传入当前矩阵组号
         run: python scripts/fetch_data.py ${{ matrix.group }}
 
-      - name: Setup Rclone
-        uses: animosityhq/rclone-sync-action@v1
-        with:
-          args: copy ./output gdrive:/QuantData/${{ github.run_id }}
-        env:
-          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG }}
+      - name: Install and Configure Rclone
+        run: |
+          sudo apt-get install -y rclone
+          mkdir -p ~/.config/rclone
+          # 将你在 Secret 中存储的配置内容写入配置文件
+          echo "${{ secrets.RCLONE_CONFIG_CONTENT }}" > ~/.config/rclone/rclone.conf
 
-      - name: Upload Logs
+      - name: Upload to Google Drive
+        run: |
+          # 检查 output 目录是否有文件（避免空目录报错）
+          if [ -d "output" ] && [ "$(ls -A output)" ]; then
+            # 同步到 Google Drive 的 QuantData/年份 目录下
+            rclone copy ./output gdrive:/QuantData/$(date +%Y) --progress
+          else
+            echo "No data files found in output directory."
+          fi
+
+      - name: Upload Failure Logs
+        # 只有在产生 log 文件时才上传（if always 保证无论成功失败都执行检测）
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: failure-logs-group-${{ matrix.group }}
           path: log/
+          retention-days: 7 # 日志保留7天
