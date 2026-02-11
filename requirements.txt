@@ -8,3 +8,4 @@ baostock
 akshare
 h5py
 PyDrive2
+tenacity
