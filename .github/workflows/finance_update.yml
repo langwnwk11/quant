@@ -2,9 +2,9 @@ name: Financial Data Get&Sync
 
 on:
   schedule:
-    # 每年7月第二个周一 00:00 UTC 运行
-    # 8-14日之间的周一即为第二个周一
-    - cron: '0 0 8-14 7 1' 
+    # 北京时间 7月10日-15日 02:15 
+    # 对应 UTC 时间 7月9日-14日 18:15
+    - cron: '15 18 9-14 7 *'
   workflow_dispatch: # 支持手动点击按钮触发，方便测试
 
 jobs:
@@ -27,18 +27,28 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt --upgrade
 
-      - name: Fetch Financial Data
-        # 运行 Python 脚本，传入当前矩阵组号
-        run: python scripts/fetch_data.py ${{ matrix.group }}
+      
 
       - name: Install and Configure Rclone
         run: |
           sudo apt-get install -y rclone
-          mkdir -p ~/.config/rclone
-          # 将你在 Secret 中存储的配置内容写入配置文件
-          echo "${{ secrets.RCLONE_CONFIG_CONTENT }}" > ~/.config/rclone/rclone.conf
+          mkdir -p ~/.config/rclone          
+          # 将 Secret 写入配置文件
+          cat << EOF > ~/.config/rclone/rclone.conf
+          ${{ secrets.RCLONE_CONF }}
+          EOF
+
+      - name: Test 1 - List Directories
+        run: |
+          echo "正在连接 Google Drive..."
+          rclone lsd gdrive:
+          echo "目录列表获取成功！"
+
+      - name: Fetch Financial Data
+        # 运行 Python 脚本，传入当前矩阵组号
+        run: python scripts/fetch_data.py ${{ matrix.group }}
 
       - name: Upload to Google Drive
         run: |
@@ -58,3 +68,4 @@ jobs:
           name: failure-logs-group-${{ matrix.group }}
           path: log/
           retention-days: 7 # 日志保留7天
+          if-no-files-found: ignore # 没日志就跳过，不报错
