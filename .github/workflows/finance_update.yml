@@ -1,0 +1,45 @@
+name: Financial Data Get&Sync
+
+on:
+  schedule:
+    # 每年7月第二个周一 00:00 UTC 运行
+    - cron: '0 0 8-14 7 1' 
+  workflow_dispatch: # 允许手动触发调试
+
+jobs:
+  fetch_and_upload:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 矩阵轮询：定义 10 个并发组 (0-9)
+        group: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Fetch Data
+        run: python scripts/fetch_data.py ${{ matrix.group }}
+
+      - name: Setup Rclone
+        uses: animosityhq/rclone-sync-action@v1
+        with:
+          args: copy ./output gdrive:/QuantData/${{ github.run_id }}
+        env:
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: failure-logs-group-${{ matrix.group }}
+          path: log/
