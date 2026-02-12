@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false # 即使某一组失败，其他组也继续执行
       matrix:
-        group: [0,1,2,3,4,5]
+        group: [0]
     
     steps:
       - name: Checkout Code
