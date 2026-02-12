@@ -6,7 +6,8 @@ import sys
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 # 这里的 group_index 和 total_groups 由 GitHub Action 传入
-GROUP_INDEX = int(sys.argv[1])
+#GROUP_INDEX = int(sys.argv[1])
+GROUP_INDEX=0
 TOTAL_GROUPS = 1
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
