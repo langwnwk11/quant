@@ -6,6 +6,10 @@ on:
     # 对应 UTC 时间 7月9日-14日 18:15
     - cron: '15 18 9-14 7 *'
   workflow_dispatch: # 支持手动点击按钮触发，方便测试
+    inputs:
+      target_group:
+        description: '选择要运行的 Group'
+        default: '0'
 
 jobs:
   fetch_and_upload:
@@ -13,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false # 即使某一组失败，其他组也继续执行
       matrix:
-        group: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        group: [${{ github.event.inputs.target_group }}]
     
     steps:
       - name: Checkout Code
