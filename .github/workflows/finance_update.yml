@@ -47,7 +47,7 @@ jobs:
           api = HfApi()
           api.upload_folder(
               folder_path='output',
-              repo_id='your-username/your-dataset-name',
+              repo_id='langwnwk/stock_finance',
               repo_type='dataset',
               token='${{ secrets.HF_TOKEN }}',
               path_in_repo=f'year_2026/group_${{ matrix.group }}'
