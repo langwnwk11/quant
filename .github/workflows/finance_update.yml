@@ -1,4 +1,4 @@
-name: Yearly Data Fetch and Upload
+name: Yearly Finanace Data Fetch and Upload
 
 on:
   schedule:
