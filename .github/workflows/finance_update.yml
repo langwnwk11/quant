@@ -1,75 +1,51 @@
-name: Financial Data Get&Sync
+name: Yearly Data Fetch and Upload
 
 on:
   schedule:
-    # 北京时间 7月10日-15日 02:15 
-    # 对应 UTC 时间 7月9日-14日 18:15
-    - cron: '15 18 9-14 7 *'
-  workflow_dispatch: # 支持手动点击按钮触发，方便测试
-    inputs:
-      target_group:
-        description: '选择要运行的 Group'
-        default: '0'
+    # Runs at 00:00 on July 20th every year
+    - cron: '0 0 20 7 *'
+  workflow_dispatch: # Allows manual testing
 
 jobs:
-  fetch_and_upload:
+  fetch-and-upload:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false # 即使某一组失败，其他组也继续执行
+      # This creates 10 parallel instances of the job
       matrix:
-        group: [0,1,2,3,4,5,6,7,8,9]
-    
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip' # 开启缓存加速后续运行
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt --upgrade
+          pip install huggingface_hub
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      
-
-      - name: Install and Configure Rclone
+      - name: Run Fetch Script
+        env:
+          GROUP_ID: ${{ matrix.group }}
         run: |
-          sudo apt-get install -y rclone
-          mkdir -p ~/.config/rclone          
-          # 将 Secret 写入配置文件
-          cat << EOF > ~/.config/rclone/rclone.conf
-          ${{ secrets.RCLONE_CONF }}
-          EOF
+          # The script creates /output and /log internally
+          python scripts/fetch_data.py --group $GROUP_ID
 
-      - name: Test 1 - List Directories
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          echo "正在连接 Google Drive..."
-          rclone lsd gdrive:
-          echo "目录列表获取成功！"
-
-      - name: Fetch Financial Data
-        # 运行 Python 脚本，传入当前矩阵组号
-        run: python scripts/fetch_data.py ${{ matrix.group }}
-
-      - name: Upload to Google Drive
-        run: |
-          # 检查 output 目录是否有文件（避免空目录报错）
-          if [ -d "output" ] && [ "$(ls -A output)" ]; then
-            # 同步到 Google Drive 的 QuantData/年份 目录下
-            rclone copy ./output gdrive:/QuantData/$(date +%Y) --progress
-          else
-            echo "No data files found in output directory."
-          fi
-
-      - name: Upload Failure Logs
-        # 只有在产生 log 文件时才上传（if always 保证无论成功失败都执行检测）
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-logs-group-${{ matrix.group }}
-          path: log/
-          retention-days: 7 # 日志保留7天
-          if-no-files-found: ignore # 没日志就跳过，不报错
+          python -c "
+          from huggingface_hub import HfApi
+          api = HfApi()
+          api.upload_folder(
+              folder_path='output',
+              repo_id='your-username/your-dataset-name',
+              repo_type='dataset',
+              token='${{ secrets.HF_TOKEN }}',
+              path_in_repo=f'year_2026/group_${{ matrix.group }}'
+          )"
