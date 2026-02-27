@@ -38,17 +38,37 @@ jobs:
           # The script creates /output and /log internally
           python scripts/fetch_data.py $(( ${{ matrix.group }} - 1 ))
 
-      - name: Upload to Hugging Face
+      - name: Upload Data & Logs to HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import HfApi
+          import os
           api = HfApi()
-          api.upload_folder(
-              folder_path='output',
-              repo_id='langwnwk/stock_finance',
-              repo_type='dataset',
-              token='${{ secrets.HF_TOKEN }}',
-              path_in_repo=f'year_2026/group_${{ matrix.group }}'
-          )"
+          repo = 'langwnwk/stock_finance'
+          token = os.environ['HF_TOKEN']
+          group_tag = 'group_${{ matrix.group }}'
+
+          # 1. 上传数据文件
+          if os.path.exists('output') and os.listdir('output'):
+              api.upload_folder(
+                  folder_path='output',
+                  repo_id=repo,
+                  repo_type='dataset',
+                  path_in_repo=f'latest_data/{group_tag}',
+                  token=token,
+                  delete_patterns=['*']
+              )
+
+          # 2. 上传失败日志 (供明日补漏任务读取)
+          if os.path.exists('log') and os.listdir('log'):
+              api.upload_folder(
+                  folder_path='log',
+                  repo_id=repo,
+                  repo_type='dataset',
+                  path_in_repo=f'latest_logs/{group_tag}',
+                  token=token,
+                  delete_patterns=['*']
+              )
+          "
