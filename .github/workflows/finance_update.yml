@@ -36,7 +36,7 @@ jobs:
           GROUP_ID: ${{ matrix.group }}
         run: |
           # The script creates /output and /log internally
-          python scripts/fetch_data.py --group $GROUP_ID
+          python scripts/fetch_data.py $(( ${{ matrix.group }} - 1 ))
 
       - name: Upload to Hugging Face
         env:
