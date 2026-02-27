@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       # This creates 10 parallel instances of the job
+      fail-fast: false  # 关键：即使一组失败，其他 9 组也会继续运行
       matrix:
         group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
+    # 设置单个任务的超时时间（例如 30 分钟），防止无限挂起
+    timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -22,12 +24,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
+          cache: 'pip' # 开启缓存，减少重复安装出错的概率
       - name: Install Dependencies
         run: |
           pip install huggingface_hub
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
+        # 如果安装经常失败，可以添加重试逻辑
+        continue-on-error: false
       - name: Run Fetch Script
         env:
           GROUP_ID: ${{ matrix.group }}
