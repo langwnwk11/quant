@@ -1,0 +1,30 @@
+name: Test HF Upload Only
+
+on: 
+  workflow_dispatch: # 允许你点击按钮手动触发
+
+jobs:
+  test-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Dummy Data
+        run: |
+          mkdir -p output
+          echo "This is a test file from $(date)" > output/test.txt
+          
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface_hub
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi()
+          api.upload_folder(
+              folder_path='output',
+              repo_id='langwnwk/stock_finance',
+              repo_type='dataset',
+              token=os.environ['HF_TOKEN'],
+              path_in_repo='test_connection'
+          )"
