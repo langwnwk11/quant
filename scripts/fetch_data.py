@@ -44,8 +44,8 @@ def run():
                 store.put('cash', c, format='table')
             print(f"Success: {symbol}")
         except Exception as e:
-            with open(f"log/failed_group_{GROUP_INDEX}.log", "a") as f:
-                f.write(f"{symbol}: {str(e)}\n")
+            with open(f"log/failed_symbols.txt", "a") as f:
+                f.write(f"{symbol}\n")
             print(f"Failed: {symbol}")
         
         time.sleep(6) # 组内严格限流，避免被封 IP
