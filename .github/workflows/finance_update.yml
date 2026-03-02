@@ -13,9 +13,9 @@ jobs:
       # This creates 10 parallel instances of the job
       fail-fast: false  # 关键：即使一组失败，其他 9 组也会继续运行
       matrix:
-        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        group: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     # 设置单个任务的超时时间（例如 30 分钟），防止无限挂起
-    timeout-minutes: 30
+    timeout-minutes: 360
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
           GROUP_ID: ${{ matrix.group }}
         run: |
           # The script creates /output and /log internally
-          python scripts/fetch_data.py $(( ${{ matrix.group }} - 1 ))
+          python scripts/fetch_data.py ${{ matrix.group }}
 
       - name: Upload Data & Logs to HF
         env:
