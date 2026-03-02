@@ -2,8 +2,9 @@ name: update_factor_fund_stock
 
 on:
   schedule:
-    # 这里的 cron 表达式代表每天北京时间早上 8:00 (UTC 0:00) 执行
-    - cron: '15 00 * * 1-5'
+    # 这里的 17 00 表示 UTC 17:00
+    # SUN-THU 表示周日至周四（对应北京时间周一至周五）
+    - cron: '0 17 * * 0-4'
   workflow_dispatch: # 允许你手动点击按钮随时测试执行
 
 jobs:
