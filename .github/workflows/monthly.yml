@@ -39,7 +39,7 @@ jobs:
           git config --local user.name "github-actions[bot]"
           
           # 这一步非常重要：添加所有产生的 parquet 文件
-          git add baseData/*.parquet
+          git add data/baseData/*.parquet
           
           # 只有在有文件变动时才提交，防止脚本报错
           if git diff --staged --quiet; then
