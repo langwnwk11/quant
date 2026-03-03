@@ -9,3 +9,4 @@ akshare
 h5py
 PyDrive2
 tenacity
+tables
