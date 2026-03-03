@@ -32,6 +32,6 @@ def save_trade_days():
     
 
 if __name__ == "__main__":
-    # get_stock_list()
+    get_stock_list()
     save_trade_days()
      
