@@ -3,7 +3,7 @@ import pandas as pd
 import os
 # 1. 定位项目根目录 (scripts 的上一级)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASE_DATA_DIR = os.path.join(ROOT_DIR, "baseData")
+BASE_DATA_DIR = os.path.join(ROOT_DIR, "data/baseData")
 if not os.path.exists(BASE_DATA_DIR):
     os.makedirs(BASE_DATA_DIR)
 # 获取a股所有上市公司的代码和名称
@@ -26,11 +26,12 @@ def get_stock_list():
     stock.to_parquet(file_path, engine='pyarrow',index=False)
 #保存a股交易日历数据
 def save_trade_days():
-    days=funcutils.get_trade_days()
+    df=funcutils.get_trade_days()      
     file_path = os.path.join(BASE_DATA_DIR, "trade_days.parquet")
-    days.to_parquet(file_path, engine='pyarrow',index=False)
+    df.to_parquet(file_path, engine='pyarrow',index=False)
+    
 
 if __name__ == "__main__":
-    get_stock_list()
-    save_trade_days
+    # get_stock_list()
+    save_trade_days()
      

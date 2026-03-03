@@ -18,12 +18,22 @@ def get_sz_stock(symbol):
   time.sleep(wait_time_seconds_after_execute)
   return df
 
-def get_trade_days( ):
-  trade_cal = ak.tool_trade_date_hist_sina()
-    # 确保 'trade_date' 列是 datetime 类型
-  trade_cal['trade_date'] = pd.to_datetime(trade_cal['trade_date'])
-  # 转换为字符串列表方便匹配
-  trade_days = trade_cal['trade_date'].dt.strftime('%Y%m%d').tolist()
-  # target_days = [d for d in trade_days if start_date <= d <= end_date]
-  time.sleep(wait_time_seconds_after_execute)
-  return trade_days
+
+def get_trade_days():
+    # 1. 获取原始数据 (AkShare 默认返回列名为 'trade_date')
+    trade_cal = ak.tool_trade_date_hist_sina()
+   
+    # 2. 转换类型
+    trade_cal['trade_date'] = pd.to_datetime(trade_cal['trade_date'])
+    
+    # 3. 重命名列名为 'date'
+    trade_cal = trade_cal.rename(columns={'trade_date': 'date'})
+    
+    # 4. 排序并重置索引
+    trade_cal = trade_cal.sort_values('date').reset_index(drop=True)
+    
+     
+    time.sleep(wait_time_seconds_after_execute)
+        
+    return trade_cal[['date']]
+
