@@ -4,7 +4,7 @@ on:
   schedule:
     # 这里的 17 00 表示 UTC 17:00
     # SUN-THU 表示周日至周四（对应北京时间周一至周五）
-    - cron: '0 17 * * 0-4'
+    - cron: '0 20 * * 0-4'
   workflow_dispatch: # 允许你手动点击按钮随时测试执行
 
 jobs:
