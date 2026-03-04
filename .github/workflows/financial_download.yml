@@ -23,12 +23,15 @@ jobs:
         uses: actions/set-up-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
+          cache: 'pip' # 开启缓存，减少重复安装出错的概率
 
       - name: Install dependencies
-        run: |
-          pip install pandas akshare pyarrow fastparquet
-
+        run: |          
+          pip install huggingface_hub
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # 如果安装经常失败，可以添加重试逻辑
+        continue-on-error: false
+        
       - name: Run Downloader
         run: |
           # 运行脚本，总组数固定为 20
@@ -91,15 +94,14 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 使用 python 脚本上传至 HF 仓库
-          pip install huggingface_hub
+          # 使用 python 脚本上传至 HF 仓库          
           python -c "
           from huggingface_hub import HfApi
           api = HfApi()
           api.upload_file(
               path_or_fileobj='final_financial_data.zip',
               path_in_repo='data/final_financial_data.zip',
-              repo_id='你的用户名/你的仓库名',
+              repo_id='langwnwk/stock_finance',
               repo_type='dataset',
               token='${{ secrets.HF_TOKEN }}'
           )"
