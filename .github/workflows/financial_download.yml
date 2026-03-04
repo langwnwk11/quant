@@ -29,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |          
-          pip install huggingface_hub
+          
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         # 如果安装经常失败，可以添加重试逻辑
         continue-on-error: false
@@ -96,7 +96,8 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 使用 python 脚本上传至 HF 仓库          
+          # 使用 python 脚本上传至 HF 仓库     
+          pip install huggingface_hub
           python -c "
           from huggingface_hub import HfApi
           api = HfApi()
