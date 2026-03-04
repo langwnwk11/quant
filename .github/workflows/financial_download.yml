@@ -10,10 +10,12 @@ jobs:
   download:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false  # 关键：即使一组失败，其他 9 组也会继续运行
       matrix:
         # 定义 20 个组 (0 到 19)
         group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    # 设置单个任务的超时时间（例如 30 分钟），防止无限挂起
+    timeout-minutes: 360
     
     steps:
       - name: Checkout code
