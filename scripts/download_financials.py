@@ -70,37 +70,51 @@ def repair_download(group_index):
     """函数 3: 自愈函数。比对文件，差额补全，最多循环 5 次"""
     task_file = OUTPUT_BASE / f"{group_index}_codes.txt"
     log_file = OUTPUT_BASE / f"{group_index}.txt"
+    fail_file = OUTPUT_BASE / f"{group_index}_fail.txt" # 新增：失败记录文件
     
+    final_success_set = set()
+
     for i in range(MAX_REPAIR_ATTEMPTS):
-        # 读取原始任务和已成功列表
+        # 1. 读取原始任务
         with open(task_file, "r") as f:
             all_task = set(line.strip() for line in f if line.strip())
         
+        # 2. 读取当前已成功列表
         success_now = set()
         if log_file.exists():
             with open(log_file, "r") as f:
                 success_now = set(line.strip() for line in f if line.strip())
 
-        # 找到待补课的名单
+        # 3. 找到待补下载的名单
         missing = list(all_task - success_now)
         
         if not missing:
             print(f"✅ 组别 {group_index}: 所有股票已下载成功。")
+            final_success_set = all_task
+            # 如果之前有失败文件，现在成功了，可以删除旧的失败文件
+            if fail_file.exists(): fail_file.unlink()
             break
         
         print(f"🔄 正在进行第 {i+1} 轮修复，剩余 {len(missing)} 只股票...")
         
-        # 执行补抓
+        # 4. 执行补抓
         newly_success = download_report_batch(missing)
         
-        # 更新成功日志
-        updated_success = sorted(list(success_now | set(newly_success)))
+        # 5. 更新成功日志
+        final_success_set = success_now | set(newly_success)
+        updated_success_list = sorted(list(final_success_set))
         with open(log_file, "w") as f:
-            f.write("\n".join(updated_success))
+            f.write("\n".join(updated_success_list))
         
-        if (i == MAX_REPAIR_ATTEMPTS - 1) and (len(all_task - set(updated_success)) > 0):
-            print(f"⚠️ 已达最大重试次数，仍有部分股票未完成。")
-
+        # --- 最后一轮结束后的处理 ---
+        if i == MAX_REPAIR_ATTEMPTS - 1:
+            final_missing = sorted(list(all_task - final_success_set))
+            if final_missing:
+                print(f"⚠️ 已达最大重试次数，共有 {len(final_missing)} 只股票下载失败。记录至 {fail_file.name}")
+                with open(fail_file, "w", encoding="utf-8") as f:
+                    f.write("\n".join(final_missing))
+            else:
+                if fail_file.exists(): fail_file.unlink()
 def main(group_index, total_groups):
     # 1. 加载全量数据并分组
     data_file = ROOT_DIR / "data" / "baseData" / "stock.parquet"
