@@ -2,109 +2,101 @@ name: Financial Data Downloader
 
 on:
   schedule:
-    - cron: '0 0 * * 1' # 每周一凌晨运行，可根据需要修改
-  workflow_dispatch:    # 支持手动触发
+    # 表达式解释：
+    # 分(0) 时(0) 日(8-14) 月(7) 周(0/SUN)
+    # UTC 00:00 对应北京时间 08:00
+    - cron: '0 0 8-14 7 0'
+  workflow_dispatch:   # 允许手动触发
 
 jobs:
-  # 阶段 1: 并行下载
+  # --- 第一阶段：分 20 组并行下载 ---
   download:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # 关键：即使一组失败，其他 9 组也会继续运行
+      fail-fast: false
       matrix:
-        # 定义 20 个组 (0 到 19)
         group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-    # 设置单个任务的超时时间（例如 30 分钟），防止无限挂起
-    timeout-minutes: 360
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # 开启缓存，减少重复安装出错的概率
+          cache: 'pip'
 
       - name: Install dependencies
-        run: |          
-          
+        run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # 如果安装经常失败，可以添加重试逻辑
-        continue-on-error: false
-        
-      - name: Run Downloader
-        run: |
-          # 运行脚本，总组数固定为 20
-          python scripts/download_financials.py ${{ matrix.group_index }} 20
 
-      - name: Zip Group Output
+      - name: Run Download Script
         run: |
-          # 将当前组生成的 output 文件夹压缩
-          zip -r group_${{ matrix.group_index }}.zip output/
+          # 确保目录存在
+          mkdir -p output
+          # 运行你的 Python 脚本
+          python download_financials.py ${{ matrix.group_index }} 20
 
-      - name: Upload Group Artifact
+      - name: Compress Output
+        run: |
+          # 将当前组的 output 目录压缩，命名包含组号
+          zip -r group_${{ matrix.group_index }}_output.zip output/
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: partial-data-${{ matrix.group_index }}
-          path: group_${{ matrix.group_index }}.zip
-          retention-days: 1
+          name: group-data-${{ matrix.group_index }}
+          path: group_${{ matrix.group_index }}_output.zip
+          retention-days: 90
 
-  # 阶段 2: 合并并上传至 Hugging Face
-  combine:
+  # --- 第二阶段：合并所有数据 ---
+  merge:
     needs: download
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download all Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: all_artifacts
-          pattern: partial-data-*
+          path: all_outputs
+          pattern: group-data-*
           merge-multiple: true
 
-      - name: Merge and Organize Data
+      - name: Process and Merge Data
         run: |
-          mkdir -p final_output/balance final_output/profit final_output/cash
-          
-          # 解压所有组的文件并合并
-          for zip_file in all_artifacts/*.zip; do
-            unzip -o "$zip_file" -d temp_extract/
-            # 合并 parquet 文件 (使用 cp -n 避免覆盖，或者直接 cp 覆盖，因为 code 是唯一的)
-            cp -rn temp_extract/output/balance/*.parquet final_output/balance/ || true
-            cp -rn temp_extract/output/profit/*.parquet final_output/profit/ || true
-            cp -rn temp_extract/output/cash/*.parquet final_output/cash/ || true
+          # 创建最终目录结构
+          mkdir -p final_output/balance
+          mkdir -p final_output/profit
+          mkdir -p final_output/cash
+
+          # 解压所有文件并移动到对应位置
+          for zipfile in all_outputs/*.zip; do
+            unzip -o "$zipfile" -d temp_extract/
             
-            # 合并 txt 记录
-            if [ -f temp_extract/output/*.txt ]; then
-              cat temp_extract/output/*.txt >> finished_raw.txt
-            fi
+            # 移动 Parquet 数据文件
+            cp -n temp_extract/output/balance/*.parquet final_output/balance/ 2>/dev/null || true
+            cp -n temp_extract/output/profit/*.parquet final_output/profit/ 2>/dev/null || true
+            cp -n temp_extract/output/cash/*.parquet final_output/cash/ 2>/dev/null || true
+            
+            # 合并文本日志 (去重合并)
+            cat temp_extract/output/*_task.txt >> raw_task.txt 2>/dev/null || true
+            cat temp_extract/output/*_success.txt >> raw_log.txt 2>/dev/null || true
+            cat temp_extract/output/*_fail.txt >> raw_fail.txt 2>/dev/null || true
+            
             rm -rf temp_extract/
           done
-          
-          # 对 finished.txt 进行排序去重
-          sort -u finished_raw.txt > final_output/finished.txt
 
-      - name: Zip Final Output
-        run: |
-          zip -r final_financial_data.zip final_output/
+          # 对文本文件进行排序和去重
+          sort -u raw_task.txt > final_output/task.txt 2>/dev/null || touch final_output/task.txt
+          sort -u raw_log.txt > final_output/log.txt 2>/dev/null || touch final_output/log.txt
+          sort -u raw_fail.txt > final_output/fail.txt 2>/dev/null || touch final_output/fail.txt
 
-      - name: Upload to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          # 使用 python 脚本上传至 HF 仓库     
-          pip install huggingface_hub
-          python -c "
-          from huggingface_hub import HfApi
-          api = HfApi()
-          api.upload_file(
-              path_or_fileobj='final_financial_data.zip',
-              path_in_repo='data/final_financial_data.zip',
-              repo_id='langwnwk/stock_finance',
-              repo_type='dataset',
-              token='${{ secrets.HF_TOKEN }}'
-          )"
+      - name: Upload Final Combined Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: finalized-financial-data
+          path: final_output/
+          retention-days: 90
