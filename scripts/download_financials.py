@@ -27,7 +27,7 @@ class PathHelper:
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=2, min=2, max=10),
     retry=retry_if_exception_type(Exception),
-    reraise=False
+    reraise=True
 )
 def fetch_api_data(api_func, code):
     """原子操作：调用 AkShare 接口"""
@@ -118,17 +118,31 @@ def repair_download(group_index):
             elif fail_file.exists():
                 fail_file.unlink()
 
-def main(group_index, total_groups):
-    # 1. 加载数据并分组
+def load_stock_codes():
+    """加载股票代码列表"""
     data_file = ROOT_DIR / "data" / "baseData" / "stock.parquet"
     if not data_file.exists():
         print("数据文件不存在")
-        return
+        return []
     
-    all_codes = pd.read_parquet(data_file)['code'].unique().tolist()
-    # 示例仅取前5只测试，正式环境可删除下行
-    # all_codes = all_codes[:5] 
+    return pd.read_parquet(data_file)['code'].unique().tolist()
 
+def load_fail_list():
+    """加载任务清单"""
+    data_file = ROOT_DIR / "log" / "financial" / "fail.txt"
+    if not data_file.exists():
+        return []
+    codes = sorted(list(read_list_file(data_file)))
+    return codes
+
+def main(group_index, total_groups,task_type):
+    if(task_type == 1):
+        all_codes = load_fail_list() 
+        # print(all_codes)       
+    else:
+        all_codes = load_stock_codes()     
+    all_codes = all_codes[:5]  # 测试阶段限制数量
+    print(all_codes)
     avg = len(all_codes) // total_groups
     start_idx = group_index * avg
     end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
@@ -141,7 +155,7 @@ def main(group_index, total_groups):
     repair_download(group_index)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         print("Usage: python script.py <GROUP_INDEX> <TOTAL_GROUPS>")
     else:
-        main(int(sys.argv[1]), int(sys.argv[2]))
+        main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
