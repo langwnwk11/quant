@@ -26,7 +26,7 @@ def download_data(group_index, total_groups):
 
     df_stocks = pd.read_parquet(data_file)
     all_codes = df_stocks['code'].unique().tolist()
-    all_codes = all_codes[:5]
+    # all_codes = all_codes[:5]
     # 简单的分桶逻辑
     avg = len(all_codes) // total_groups
     start_idx = group_index * avg
