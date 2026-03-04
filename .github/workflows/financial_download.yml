@@ -36,7 +36,7 @@ jobs:
           # 确保目录存在
           mkdir -p output
           # 运行你的 Python 脚本
-          python download_financials.py ${{ matrix.group_index }} 20
+          python scripts/download_financials.py ${{ matrix.group_index }} 20
 
       - name: Compress Output
         run: |
