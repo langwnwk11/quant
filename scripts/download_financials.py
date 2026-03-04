@@ -53,6 +53,12 @@ def download_data(group_index, total_groups):
                 print(f"  [重试 {i+1}] {symbol} 接口错误: {e}, 等待 {wait}s...")
                 time.sleep(wait)
         return None
+    # 保存本次要抓取的全部股票代码
+    code_file = output_base / f"{group_index}_codes.txt"
+    with open(code_file, "w", encoding="utf-8") as f:
+        for code in my_codes:
+            f.write(f"{code}\n")
+    print(f"股票列表已保存至 {code_file}")
 
     for code in my_codes:
         print(f"正在处理: {code}")
