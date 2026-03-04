@@ -1,110 +1,126 @@
-import os
 import sys
 import time
 import pandas as pd
 import akshare as ak
 from pathlib import Path
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-# --- 配置区 ---
-RETRIES = 3
-SLEEP_TIME = 2  # 基础等待秒数
+# --- 配置 ---
+ROOT_DIR = Path(__file__).parent.parent
+OUTPUT_BASE = ROOT_DIR / "output"
+MAX_REPAIR_ATTEMPTS = 5  # 最大修复轮次
 
-def download_data(group_index, total_groups):
-    # 1. 路径设置
-    root_dir = Path(__file__).parent.parent
-    data_file = root_dir / "data" / "baseData" / "stock.parquet"
-    output_base = root_dir / "output"
+# Tenacity 限流与重试策略
+ak_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=False # 即使失败也不抛出异常，交给业务逻辑处理
+)
+
+@ak_retry
+def fetch_api_data(api_func, code):
+    """原子操作：调用 AkShare 接口"""
+    df = api_func(symbol=code)
+    return df if (df is not None and not df.empty) else None
+
+def save_task_codes(group_index, codes):
+    """函数 1: 保存初始任务清单"""
+    OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
+    file_path = OUTPUT_BASE / f"{group_index}_codes.txt"
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(codes))
+    print(f"任务清单已保存: {file_path}")
+
+def download_report_batch(codes):
+    """函数 2: 核心下载逻辑"""
+    success_list = []
+    tasks = {
+        "balance": ak.stock_balance_sheet_by_yearly_em,
+        "profit": ak.stock_profit_sheet_by_yearly_em,
+        "cash": ak.stock_cash_flow_sheet_by_yearly_em
+    }
     
-    # 创建必要的文件夹
-    for sub in ["balance", "profit", "cash"]:
-        (output_base / sub).mkdir(parents=True, exist_ok=True)
+    # 确保子目录存在
+    for sub in tasks.keys():
+        (OUTPUT_BASE / sub).mkdir(parents=True, exist_ok=True)
 
-    # 2. 读取股票列表并分组
-    if not data_file.exists():
-        print(f"错误: 找不到数据文件 {data_file}")
-        return
-
-    df_stocks = pd.read_parquet(data_file)
-    all_codes = df_stocks['code'].unique().tolist()
-    # all_codes = all_codes[:5]
-    # 简单的分桶逻辑
-    avg = len(all_codes) // total_groups
-    start_idx = group_index * avg
-    # 最后一组处理余数
-    end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
-    
-    my_codes = all_codes[start_idx:end_idx]
-    print(f"组别 {group_index}: 准备处理 {len(my_codes)} 只股票")
-
-    # 3. 抓取逻辑
-    success_log = []
-    
-    # 定义内部抓取函数带重试
-    def fetch_with_retry(func, symbol):
-        for i in range(RETRIES):
-            try:
-                # AkShare 接口通常需要 6 位代码
-                data = func(symbol=symbol)
-                if data is not None and not data.empty:
-                    return data
-                return None
-            except Exception as e:
-                wait = SLEEP_TIME * (i + 1)
-                print(f"  [重试 {i+1}] {symbol} 接口错误: {e}, 等待 {wait}s...")
-                time.sleep(wait)
-        return None
-    # 保存本次要抓取的全部股票代码
-    code_file = output_base / f"{group_index}_codes.txt"
-    with open(code_file, "w", encoding="utf-8") as f:
-        for code in my_codes:
-            f.write(f"{code}\n")
-    print(f"股票列表已保存至 {code_file}")
-
-    for code in my_codes:
-        print(f"正在处理: {code}")
-        try:
-            # 对应的三个接口映射
-            tasks = {
-                "balance": ak.stock_balance_sheet_by_yearly_em,
-                "profit": ak.stock_profit_sheet_by_yearly_em,
-                "cash": ak.stock_cash_flow_sheet_by_yearly_em
-            }
+    for code in codes:
+        is_all_ok = True
+        for folder, api_func in tasks.items():
+            save_path = OUTPUT_BASE / folder / f"{code}.parquet"
+            if save_path.exists():
+                continue
             
-            is_all_ok = True
-            for folder, api_func in tasks.items():
-                save_path = output_base / folder / f"{code}.parquet"
-                
-                # 如果文件已存在则跳过 (可选)
-                if save_path.exists():
-                    continue
-                
-                df = fetch_with_retry(api_func, code)
+            try:
+                df = fetch_api_data(api_func, code)
                 if df is not None:
                     df.to_parquet(save_path)
                 else:
                     is_all_ok = False
-                
-                time.sleep(0.5) # 常规防爬间隔
+                time.sleep(0.5) # 基础防爬
+            except:
+                is_all_ok = False
+        
+        if is_all_ok:
+            success_list.append(code)
+    return success_list
 
-            if is_all_ok:
-                success_log.append(code)
-                
-        except Exception as e:
-            print(f"处理 {code} 时发生未知错误: {e}")
-
-    # 4. 写入成功记录
-    log_file = output_base / f"{group_index}.txt"
-    with open(log_file, "w") as f:
-        for c in success_log:
-            f.write(f"{c}\n")
+def repair_download(group_index):
+    """函数 3: 自愈函数。比对文件，差额补全，最多循环 5 次"""
+    task_file = OUTPUT_BASE / f"{group_index}_codes.txt"
+    log_file = OUTPUT_BASE / f"{group_index}.txt"
     
-    print(f"组别 {group_index} 处理完毕，成功记录至 {log_file}")
+    for i in range(MAX_REPAIR_ATTEMPTS):
+        # 读取原始任务和已成功列表
+        with open(task_file, "r") as f:
+            all_task = set(line.strip() for line in f if line.strip())
+        
+        success_now = set()
+        if log_file.exists():
+            with open(log_file, "r") as f:
+                success_now = set(line.strip() for line in f if line.strip())
+
+        # 找到待补课的名单
+        missing = list(all_task - success_now)
+        
+        if not missing:
+            print(f"✅ 组别 {group_index}: 所有股票已下载成功。")
+            break
+        
+        print(f"🔄 正在进行第 {i+1} 轮修复，剩余 {len(missing)} 只股票...")
+        
+        # 执行补抓
+        newly_success = download_report_batch(missing)
+        
+        # 更新成功日志
+        updated_success = sorted(list(success_now | set(newly_success)))
+        with open(log_file, "w") as f:
+            f.write("\n".join(updated_success))
+        
+        if (i == MAX_REPAIR_ATTEMPTS - 1) and (len(all_task - set(updated_success)) > 0):
+            print(f"⚠️ 已达最大重试次数，仍有部分股票未完成。")
+
+def main(group_index, total_groups):
+    # 1. 加载全量数据并分组
+    data_file = ROOT_DIR / "data" / "baseData" / "stock.parquet"
+    if not data_file.exists(): return
+    
+    all_codes = pd.read_parquet(data_file)['code'].unique().tolist()
+    # all_codes=all_codes[0:5]
+    avg = len(all_codes) // total_groups
+    start_idx = group_index * avg
+    end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
+    my_codes = all_codes[start_idx:end_idx]
+
+    # 2. 保存任务清单
+    save_task_codes(group_index, my_codes)
+
+    # 3. 启动自愈下载流程 (内部会调用核心下载函数并处理重试)
+    repair_download(group_index)
 
 if __name__ == "__main__":
-    # 示例用法: python scripts/download_financials.py 0 10
     if len(sys.argv) < 3:
-        print("请传入参数: GROUP_INDEX TOTAL_GROUPS")
+        print("参数缺失: GROUP_INDEX TOTAL_GROUPS")
     else:
-        g_idx = int(sys.argv[1])
-        t_groups = int(sys.argv[2])
-        download_data(g_idx, t_groups)
+        main(int(sys.argv[1]), int(sys.argv[2]))
