@@ -48,15 +48,22 @@ jobs:
         with:
           name: group-data-${{ matrix.group_index }}
           path: group_${{ matrix.group_index }}_output.zip
-          retention-days: 90
+          retention-days: 2
 
+  # --- 第二阶段：合并所有数据 ---
   # --- 第二阶段：合并所有数据 ---
   merge:
     needs: download
     runs-on: ubuntu-latest
+    # 必须给予写权限，否则无法推送到仓库
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 最好获取完整历史以避免推送冲突
 
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
@@ -67,21 +74,24 @@ jobs:
 
       - name: Process and Merge Data
         run: |
-          # 创建最终目录结构
+          # 创建最终目录结构（用于 Artifact）
           mkdir -p final_output/balance
           mkdir -p final_output/profit
           mkdir -p final_output/cash
+          
+          # 创建用于存放 Log 的仓库目录
+          mkdir -p log/financial/
 
           # 解压所有文件并移动到对应位置
           for zipfile in all_outputs/*.zip; do
             unzip -o "$zipfile" -d temp_extract/
             
-            # 移动 Parquet 数据文件
+            # 移动 Parquet 数据文件到 final_output (不入库)
             cp -n temp_extract/output/balance/*.parquet final_output/balance/ 2>/dev/null || true
             cp -n temp_extract/output/profit/*.parquet final_output/profit/ 2>/dev/null || true
             cp -n temp_extract/output/cash/*.parquet final_output/cash/ 2>/dev/null || true
             
-            # 合并文本日志 (去重合并)
+            # 临时合并文本日志
             cat temp_extract/output/*_task.txt >> raw_task.txt 2>/dev/null || true
             cat temp_extract/output/*_success.txt >> raw_log.txt 2>/dev/null || true
             cat temp_extract/output/*_fail.txt >> raw_fail.txt 2>/dev/null || true
@@ -89,10 +99,20 @@ jobs:
             rm -rf temp_extract/
           done
 
-          # 对文本文件进行排序和去重
-          sort -u raw_task.txt > final_output/task.txt 2>/dev/null || touch final_output/task.txt
-          sort -u raw_log.txt > final_output/log.txt 2>/dev/null || touch final_output/log.txt
-          sort -u raw_fail.txt > final_output/fail.txt 2>/dev/null || touch final_output/fail.txt
+          # 对文本文件进行排序去重，并直接存入仓库对应的 log 目录
+          sort -u raw_task.txt > log/financial/task.txt 2>/dev/null || touch log/financial/task.txt
+          sort -u raw_log.txt > log/financial/log.txt 2>/dev/null || touch log/financial/log.txt
+          sort -u raw_fail.txt > log/financial/fail.txt 2>/dev/null || touch log/financial/fail.txt
+          
+          # 同时拷贝一份到 final_output 供 Artifact 下载（可选）
+          cp log/financial/*.txt final_output/
+
+      - name: Commit and Push Logs
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update financial download logs [skip ci]"
+          file_pattern: 'log/financial/*.txt'
+          branch: ${{ github.ref }} # 推送到当前分支
 
       - name: Upload Final Combined Result
         uses: actions/upload-artifact@v4
