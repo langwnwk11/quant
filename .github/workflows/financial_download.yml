@@ -7,6 +7,10 @@ on:
     # UTC 00:00 对应北京时间 08:00
     - cron: '0 0 8-14 7 0'
   workflow_dispatch:   # 允许手动触发
+# 核心修复：防止多个 Job 同时运行导致推送到 GitHub 时发生冲突
+concurrency:
+  group: financial-data-sync-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # --- 第一阶段：分 20 组并行下载 ---
@@ -62,7 +66,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 确保获取完整历史以支持 rebase
+          fetch-depth: 0 
+          # 确保获取完整历史以支持 rebase
   
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
@@ -121,19 +126,14 @@ jobs:
           # 4. 拷贝到 Artifact 目录
           cp log/financial/*.txt final_output/
 
-        # --- 关键修复：在提交前先拉取远程更新 ---
-      - name: Pull latest changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }} --rebase
-        
       - name: Commit and Push Logs
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "docs: update financial download logs [skip ci]"
           file_pattern: 'log/financial/*.txt'
-          branch: ${{ github.ref }}
+          # 如果极罕见情况下仍有冲突，启用强制推送
+          push_options: '--force'
+          skip_dirty_check: false
   
       - name: Upload Final Combined Result
         uses: actions/upload-artifact@v4
