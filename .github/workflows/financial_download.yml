@@ -66,6 +66,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }} # 核心修复点 1
           fetch-depth: 0 
           # 确保获取完整历史以支持 rebase
   
@@ -126,6 +127,13 @@ jobs:
           # 4. 拷贝到 Artifact 目录
           cp log/financial/*.txt final_output/
 
+      # 核心修复点 2：在提交前拉取最新代码，防止冲突
+      - name: Pull latest changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull origin ${{ github.ref_name }} --rebase
+
       - name: Commit and Push
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -134,9 +142,8 @@ jobs:
           # 关键点 1: 显式指定分支名
           branch: ${{ github.ref_name }}
           
-          # 关键点 2: 开启强制推送（如果该 Action 只是更新日志/数据，不涉及核心代码）
-          # 强制推送可以解决 99% 的冲突失败
-          push_options: '--force'
+           
+          
 
       
       
