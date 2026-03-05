@@ -8,7 +8,7 @@ on:
         required: true
         type: string
         # 注意：这里不能直接在 run_id 下面写默认值，除非使用 default 关键字
-        default: '22670218135' 
+        
 
 jobs:
   process-and-upload:
