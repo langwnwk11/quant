@@ -3,7 +3,7 @@ name: Merge Financial Data
 on:
   workflow_dispatch:
     inputs:
-      run_id:
+      run_id: 22670218135
         description: 'The run ID of the source workflow'
         required: true
         type: string
