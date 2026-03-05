@@ -126,14 +126,20 @@ jobs:
           # 4. 拷贝到 Artifact 目录
           cp log/financial/*.txt final_output/
 
-      - name: Commit and Push Logs
+      - name: Commit and Push
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: update financial download logs [skip ci]"
+          commit_message: "Auto update"
           file_pattern: 'log/financial/*.txt'
-          # 如果极罕见情况下仍有冲突，启用强制推送
+          # 关键点 1: 显式指定分支名
+          branch: ${{ github.ref_name }}
+          
+          # 关键点 2: 开启强制推送（如果该 Action 只是更新日志/数据，不涉及核心代码）
+          # 强制推送可以解决 99% 的冲突失败
           push_options: '--force'
-          skip_dirty_check: false
+
+      
+      
   
       - name: Upload Final Combined Result
         uses: actions/upload-artifact@v4
