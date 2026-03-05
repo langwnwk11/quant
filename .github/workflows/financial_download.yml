@@ -61,7 +61,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      # fetch-depth: 0 已经在默认配置中或根据需要保留
+        with:
+          fetch-depth: 0 # 确保获取完整历史以支持 rebase
   
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
@@ -119,7 +120,14 @@ jobs:
           
           # 4. 拷贝到 Artifact 目录
           cp log/financial/*.txt final_output/
-  
+
+        # --- 关键修复：在提交前先拉取远程更新 ---
+      - name: Pull latest changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull origin ${{ github.ref_name }} --rebase
+        
       - name: Commit and Push Logs
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
