@@ -33,7 +33,23 @@ def process_financial_data(base_dir):
         shutil.rmtree(cat_path)
         print(f"Cleaned up directory: {cat_path}")
 
+# 在你的 merg_financials.py 末尾添加
+def create_readme(target_dir):
+    content = """---
+configs:
+- config_name: balance
+  data_files: "balance.parquet"
+- config_name: cash
+  data_files: "cash.parquet"
+- config_name: profit
+  data_files: "profit.parquet"
+---
+"""
+    with open(os.path.join(target_dir, "README.md"), "w") as f:
+        f.write(content)
+
 if __name__ == "__main__":
     # 默认处理当前目录下的 finalized-financial-data
     target_dir = sys.argv[1] if len(sys.argv) > 1 else "finalized-financial-data"
     process_financial_data(target_dir)
+    create_readme(target_dir)
