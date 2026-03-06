@@ -128,42 +128,34 @@ jobs:
           # 4. 拷贝到 Artifact 目录
           cp log/financial/*.txt final_output/
 
-      # 核心修复点 2：在提交前拉取最新代码，防止冲突
-      - name: Pull latest changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }} --rebase
-
-
       - name: Native Git Push
         run: |
           # 1. 配置身份
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # 2. 强制切换并关联分支（防止 detached HEAD）
+          # 2. 确保我们在正确的分支
           git checkout main
           
-          # 3. 添加更改
+          # 3. 添加更改到暂存区 (Staging Area)
           git add log/financial/*.txt
           
-          # 4. 只有在有变化时才提交
+          # 4. 只有在有变化时才处理
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
+            # 先提交本地更改，让工作区变干净
             git commit -m "docs: update financial download logs [skip ci]"
             
-            # 5. 关键：拉取最新远程更改并变基，然后强制推送
-            # 这样即便远程有更新，你的日志也会接在后面
+            # 5. 关键：此时工作区已干净，执行 pull rebase 
+            # 如果远程有更新，Git 会把你的 commit 接在远程 commit 之后
             git pull origin main --rebase
+            
+            # 6. 推送
             git push origin main
           fi
-          
-           
-          
 
-      
+
       
   
       - name: Upload Final Combined Result
