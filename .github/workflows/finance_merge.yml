@@ -41,7 +41,7 @@ jobs:
 
       - name: Run Merge Script
         # 确保你的文件名是 merg_financials.py (检查拼写是否带 e)
-        run: python scripts/merg_financials.py finalized-financial-data
+        run: python scripts/merge_financials.py finalized-financial-data
 
       - name: Upload to Hugging Face
         env:
