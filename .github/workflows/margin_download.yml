@@ -75,7 +75,6 @@ jobs:
         env:
           CUR_DATE_STR: $(date +'%Y%m%d')
         run: |
-          # 1. 我们依然保留日期，用来命名文件，但 Tag 固定
           CUR_DATE=$(date +'%Y%m%d')
           echo "file_date=$CUR_DATE" >> $GITHUB_OUTPUT
           
@@ -85,9 +84,9 @@ jobs:
           import os
 
           date_str = os.getenv("CUR_DATE_STR")
-          # 如果你希望 Release 里的文件名也永远一样，可以去掉 {date_str}_
-          target_file = f"latest_margin.parquet" 
-          fail_file = f"latest_fail.txt"
+          # 【修改点 1】文件名带上日期
+          target_file = f"{date_str}_margin.parquet" 
+          fail_file = f"{date_str}_fail.txt"
           
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
           if parquet_files:
@@ -109,13 +108,12 @@ jobs:
                   outfile.write("No download failures recorded.")
           EOF
           
-          # 2. 检查固定名称的文件是否存在
-          if [ -f "latest_margin.parquet" ]; then
+          # 【修改点 2】检查带日期的文件是否存在
+          if [ -f "${CUR_DATE}_margin.parquet" ]; then
             echo "margin_exists=true" >> $GITHUB_OUTPUT
           else
             echo "margin_exists=false" >> $GITHUB_OUTPUT
           fi
-          # 固定 Tag 名称，不再使用时间戳
           echo "tag_name=latest-data" >> $GITHUB_OUTPUT
 
       - name: Create or Update Release
@@ -123,15 +121,15 @@ jobs:
         if: steps.merge_step.outputs.margin_exists == 'true'
         with:
           tag_name: ${{ steps.merge_step.outputs.tag_name }}
-          name: "Latest Margin Data (Updated Daily)"
+          name: "Margin Data Archive"
           body: |
-            Last updated on: ${{ steps.merge_step.outputs.file_date }}
-            This release contains the most recent data sync.
+            Last update: ${{ steps.merge_step.outputs.file_date }}
+            All historical daily files are kept in this release.
           draft: false
           prerelease: false
-          # 这样每次运行都会覆盖这卷 Release 下的这两个文件
+          # 【修改点 3】上传带日期的文件
           files: |
-            latest_margin.parquet
-            latest_fail.txt
+            ${{ steps.merge_step.outputs.file_date }}_margin.parquet
+            ${{ steps.merge_step.outputs.file_date }}_fail.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
