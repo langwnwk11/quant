@@ -94,7 +94,19 @@ jobs:
               full_df.to_parquet(target_file, index=False)
               margin_exists = "true"
               print(f"Combined {len(parquet_files)} files into {target_file}")
-          
+              
+          txt_files = glob.glob("raw_data/*_fail.txt")
+          with open(fail_file, "w", encoding="utf-8") as outfile:
+              found_any = False
+              for fpath in txt_files:
+                  if os.path.exists(fpath):
+                      with open(fpath, "r", encoding="utf-8") as infile:
+                          content = infile.read().strip()
+                          if content:
+                              outfile.write(content + "\n")
+                              found_any = True
+              if not found_any:
+                  outfile.write("No download failures recorded.")
           # (错误处理代码保持不变...)
           
           # 3. 关键：将 Python 变量写入 GITHUB_OUTPUT 供后续步骤使用
