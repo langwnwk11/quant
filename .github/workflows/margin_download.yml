@@ -77,26 +77,38 @@ jobs:
           import glob
           import os
 
-          # 1. 合并 Parquet
+          # 1. Merge Parquet
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
           if parquet_files:
               df_list = [pd.read_parquet(f) for f in parquet_files]
               full_df = pd.concat(df_list, ignore_index=True)
               full_df.to_parquet("margin.parquet")
-          
-          # 2. 合并 Fail TXT
+              print("Created margin.parquet")
+          else:
+              print("No parquet files found to merge.")
+
+          # 2. Merge Fail TXT
           txt_files = glob.glob("raw_data/*_fail.txt")
-          # 无论是否有错误，都创建一个文件，避免 Release 上传找不到文件
           with open("fail.txt", "w", encoding="utf-8") as outfile:
+              found_content = False
               if txt_files:
                   for fpath in txt_files:
                       with open(fpath, "r", encoding="utf-8") as infile:
                           content = infile.read().strip()
                           if content:
                               outfile.write(content + "\n")
+                              found_content = True
+              
+              if not found_content:
+                  outfile.write("No download failures recorded.")
           EOF
           
-          # 获取当前日期作为 Tag 名
+          # Only set the tag if the file we actually want (parquet) exists
+          if [ -f "margin.parquet" ]; then
+            echo "margin_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "margin_exists=false" >> $GITHUB_OUTPUT
+          fi
           echo "tag_name=data-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
       - name: Create Release and Upload Assets
