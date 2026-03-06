@@ -1,12 +1,13 @@
-name: Daily Margin Data Download
+name: Daily Margin Data Download (Manual)
 
 on:
-  schedule:
-    # 北京时间每个工作日 (周一至周五) 早 6:00 -> UTC 晚 22:00 (周日至周四)
-    - cron: '0 22 * * 0-4'
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch: # 仅允许手动触发
+    inputs:
+      target_date:
+        description: '输入起始日期 (格式: YYYYMMDD)'
+        required: false
+        default: '20250101'
 
-# 必须赋予权限才能创建 Release
 permissions:
   contents: write
 
@@ -34,18 +35,18 @@ jobs:
 
       - name: Run download script
         run: |
-          # 动态获取日期或使用传入日期
-          python scripts/download_margin.py ${{ matrix.group_index }} 20 --date 20250101
+          # 使用手动输入的日期，如果没有输入则使用默认值
+          python scripts/download_margin.py ${{ matrix.group_index }} 20 --date ${{ github.event.inputs.target_date }}
 
       - name: Upload temporary files
         uses: actions/upload-artifact@v4
         with:
           name: group-results-${{ matrix.group_index }}
           path: |
-            ${{ matrix.group_index }}_margin.parquet
-            ${{ matrix.group_index }}_fail.txt
+            output/${{ matrix.group_index }}_margin.parquet
+            output/${{ matrix.group_index }}_fail.txt
           retention-days: 1
-          if-no-files-found: warn
+          if-no-files-found: error 
 
   merge:
     needs: download
@@ -72,56 +73,59 @@ jobs:
       - name: Merge files
         id: merge_step
         run: |
+          # 获取当前系统日期作为输出文件的后缀
+          CUR_DATE=$(date +'%Y%m%d')
+          echo "file_date=$CUR_DATE" >> $GITHUB_OUTPUT
+          
           python <<EOF
           import pandas as pd
           import glob
           import os
 
-          # 1. Merge Parquet
+          target_file = f"{CUR_DATE}_margin.parquet"
+          
+          # 寻找下载的碎片文件
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
           if parquet_files:
+              print(f"Merging {len(parquet_files)} files...")
               df_list = [pd.read_parquet(f) for f in parquet_files]
               full_df = pd.concat(df_list, ignore_index=True)
-              full_df.to_parquet("margin.parquet")
-              print("Created margin.parquet")
+              full_df.to_parquet(target_file, index=False)
+              print(f"Created {target_file}")
           else:
               print("No parquet files found to merge.")
 
-          # 2. Merge Fail TXT
+          # 合并错误日志
           txt_files = glob.glob("raw_data/*_fail.txt")
-          with open("fail.txt", "w", encoding="utf-8") as outfile:
-              found_content = False
-              if txt_files:
-                  for fpath in txt_files:
-                      with open(fpath, "r", encoding="utf-8") as infile:
-                          content = infile.read().strip()
-                          if content:
-                              outfile.write(content + "\n")
-                              found_content = True
-              
-              if not found_content:
+          with open(f"{CUR_DATE}_fail.txt", "w", encoding="utf-8") as outfile:
+              found_any = False
+              for fpath in txt_files:
+                  with open(fpath, "r", encoding="utf-8") as infile:
+                      content = infile.read().strip()
+                      if content:
+                          outfile.write(content + "\n")
+                          found_any = True
+              if not found_any:
                   outfile.write("No download failures recorded.")
           EOF
           
-          # Only set the tag if the file we actually want (parquet) exists
-          if [ -f "margin.parquet" ]; then
+          # 检查合并结果
+          if [ -f "${CUR_DATE}_margin.parquet" ]; then
             echo "margin_exists=true" >> $GITHUB_OUTPUT
           else
             echo "margin_exists=false" >> $GITHUB_OUTPUT
           fi
-          echo "tag_name=data-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+          echo "tag_name=manual-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
+        if: steps.merge_step.outputs.margin_exists == 'true'
         with:
           tag_name: ${{ steps.merge_step.outputs.tag_name }}
-          name: "Margin Data: ${{ steps.merge_step.outputs.tag_name }}"
-          body: "Automatic daily margin data sync."
-          draft: false
-          prerelease: false
+          name: "Manual Margin Data: ${{ steps.merge_step.outputs.tag_name }}"
+          body: "Manually triggered data download for date: ${{ github.event.inputs.target_date }}"
           files: |
-            margin.parquet
-            fail.txt
-          fail_on_unmatched_files: false # 如果文件不存在，不报错
+            ${{ steps.merge_step.outputs.file_date }}_margin.parquet
+            ${{ steps.merge_step.outputs.file_date }}_fail.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
