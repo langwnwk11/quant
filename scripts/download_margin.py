@@ -55,7 +55,7 @@ def fetch_single_day(date_str):
     # 接口文档：stock_margin_detail_szse
     df = ak.stock_margin_detail_szse(date=date_str)
     if df is not None and not df.empty:
-        df['trade_date'] = date_str
+        df['date'] = date_str
     return df
 
 # --- 4. 持久化模块 ---
