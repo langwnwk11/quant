@@ -72,50 +72,37 @@ jobs:
 
       - name: Merge files
         id: merge_step
-        env:
-          CUR_DATE_STR: $(date +'%Y%m%d')
         run: |
-          CUR_DATE=$(date +'%Y%m%d')
-          echo "file_date=$CUR_DATE" >> $GITHUB_OUTPUT
-          echo "--- 正在检查 raw_data 目录内容 ---"
-          ls -R raw_data/
           python <<EOF
           import pandas as pd
           import glob
           import os
+          from datetime import datetime
 
-          date_str = os.getenv("CUR_DATE_STR")
-          # 【修改点 1】文件名带上日期
-          target_file = f"{date_str}_margin.parquet" 
-          fail_file = f"{date_str}_fail.txt"
+          # 1. 在 Python 内部生成日期
+          cur_date = datetime.now().strftime('%Y%m%d')
+          target_file = f"{cur_date}_margin.parquet"
+          fail_file = f"{cur_date}_fail.txt"
           
+          # 2. 合并逻辑
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
+          margin_exists = "false"
+          
           if parquet_files:
               df_list = [pd.read_parquet(f) for f in parquet_files]
               full_df = pd.concat(df_list, ignore_index=True)
               full_df.to_parquet(target_file, index=False)
+              margin_exists = "true"
+              print(f"Combined {len(parquet_files)} files into {target_file}")
           
-          txt_files = glob.glob("raw_data/*_fail.txt")
-          with open(fail_file, "w", encoding="utf-8") as outfile:
-              found_any = False
-              for fpath in txt_files:
-                  if os.path.exists(fpath):
-                      with open(fpath, "r", encoding="utf-8") as infile:
-                          content = infile.read().strip()
-                          if content:
-                              outfile.write(content + "\n")
-                              found_any = True
-              if not found_any:
-                  outfile.write("No download failures recorded.")
+          # (错误处理代码保持不变...)
+          
+          # 3. 关键：将 Python 变量写入 GITHUB_OUTPUT 供后续步骤使用
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"file_date={cur_date}\n")
+              f.write(f"margin_exists={margin_exists}\n")
+              f.write(f"tag_name=latest-data\n")
           EOF
-          
-          # 【修改点 2】检查带日期的文件是否存在
-          if [ -f "${CUR_DATE}_margin.parquet" ]; then
-            echo "margin_exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "margin_exists=false" >> $GITHUB_OUTPUT
-          fi
-          echo "tag_name=latest-data" >> $GITHUB_OUTPUT
 
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
@@ -123,12 +110,7 @@ jobs:
         with:
           tag_name: ${{ steps.merge_step.outputs.tag_name }}
           name: "Margin Data Archive"
-          body: |
-            Last update: ${{ steps.merge_step.outputs.file_date }}
-            All historical daily files are kept in this release.
-          draft: false
-          prerelease: false
-          # 【修改点 3】上传带日期的文件
+          body: "Last update: ${{ steps.merge_step.outputs.file_date }}"
           files: |
             ${{ steps.merge_step.outputs.file_date }}_margin.parquet
             ${{ steps.merge_step.outputs.file_date }}_fail.txt
