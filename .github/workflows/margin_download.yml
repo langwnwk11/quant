@@ -122,6 +122,6 @@ jobs:
           files: |
             margin.parquet
             fail.txt
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: false # 如果文件不存在，不报错
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
