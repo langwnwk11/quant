@@ -142,7 +142,7 @@ def main(group_index, total_groups,task_type):
     else:
         all_codes = load_stock_codes()     
     #all_codes = all_codes[:5]  # 测试阶段限制数量
-    print(all_codes)
+    print(len(all_codes))
     avg = len(all_codes) // total_groups
     start_idx = group_index * avg
     end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
