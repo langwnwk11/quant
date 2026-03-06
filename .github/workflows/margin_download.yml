@@ -77,7 +77,8 @@ jobs:
         run: |
           CUR_DATE=$(date +'%Y%m%d')
           echo "file_date=$CUR_DATE" >> $GITHUB_OUTPUT
-          
+          echo "--- 正在检查 raw_data 目录内容 ---"
+          ls -R raw_data/
           python <<EOF
           import pandas as pd
           import glob
