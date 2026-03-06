@@ -72,8 +72,10 @@ jobs:
 
       - name: Merge files
         id: merge_step
+        env:
+          CUR_DATE_STR: $(date +'%Y%m%d')
         run: |
-          # 获取当前系统日期作为输出文件的后缀
+          # 1. 我们依然保留日期，用来命名文件，但 Tag 固定
           CUR_DATE=$(date +'%Y%m%d')
           echo "file_date=$CUR_DATE" >> $GITHUB_OUTPUT
           
@@ -82,50 +84,54 @@ jobs:
           import glob
           import os
 
-          target_file = f"{CUR_DATE}_margin.parquet"
+          date_str = os.getenv("CUR_DATE_STR")
+          # 如果你希望 Release 里的文件名也永远一样，可以去掉 {date_str}_
+          target_file = f"latest_margin.parquet" 
+          fail_file = f"latest_fail.txt"
           
-          # 寻找下载的碎片文件
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
           if parquet_files:
-              print(f"Merging {len(parquet_files)} files...")
               df_list = [pd.read_parquet(f) for f in parquet_files]
               full_df = pd.concat(df_list, ignore_index=True)
               full_df.to_parquet(target_file, index=False)
-              print(f"Created {target_file}")
-          else:
-              print("No parquet files found to merge.")
-
-          # 合并错误日志
+          
           txt_files = glob.glob("raw_data/*_fail.txt")
-          with open(f"{CUR_DATE}_fail.txt", "w", encoding="utf-8") as outfile:
+          with open(fail_file, "w", encoding="utf-8") as outfile:
               found_any = False
               for fpath in txt_files:
-                  with open(fpath, "r", encoding="utf-8") as infile:
-                      content = infile.read().strip()
-                      if content:
-                          outfile.write(content + "\n")
-                          found_any = True
+                  if os.path.exists(fpath):
+                      with open(fpath, "r", encoding="utf-8") as infile:
+                          content = infile.read().strip()
+                          if content:
+                              outfile.write(content + "\n")
+                              found_any = True
               if not found_any:
                   outfile.write("No download failures recorded.")
           EOF
           
-          # 检查合并结果
-          if [ -f "${CUR_DATE}_margin.parquet" ]; then
+          # 2. 检查固定名称的文件是否存在
+          if [ -f "latest_margin.parquet" ]; then
             echo "margin_exists=true" >> $GITHUB_OUTPUT
           else
             echo "margin_exists=false" >> $GITHUB_OUTPUT
           fi
-          echo "tag_name=manual-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+          # 固定 Tag 名称，不再使用时间戳
+          echo "tag_name=latest-data" >> $GITHUB_OUTPUT
 
-      - name: Create Release and Upload Assets
+      - name: Create or Update Release
         uses: softprops/action-gh-release@v2
         if: steps.merge_step.outputs.margin_exists == 'true'
         with:
           tag_name: ${{ steps.merge_step.outputs.tag_name }}
-          name: "Manual Margin Data: ${{ steps.merge_step.outputs.tag_name }}"
-          body: "Manually triggered data download for date: ${{ github.event.inputs.target_date }}"
+          name: "Latest Margin Data (Updated Daily)"
+          body: |
+            Last updated on: ${{ steps.merge_step.outputs.file_date }}
+            This release contains the most recent data sync.
+          draft: false
+          prerelease: false
+          # 这样每次运行都会覆盖这卷 Release 下的这两个文件
           files: |
-            ${{ steps.merge_step.outputs.file_date }}_margin.parquet
-            ${{ steps.merge_step.outputs.file_date }}_fail.txt
+            latest_margin.parquet
+            latest_fail.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
