@@ -6,14 +6,17 @@ on:
     - cron: '0 22 * * 0-4'
   workflow_dispatch: # 允许手动触发
 
+# 必须赋予权限才能创建 Release
+permissions:
+  contents: write
+
 jobs:
   download:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 定义 20 个分组索引
         group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-      fail-fast: false # 即使某一组失败，其他组也继续执行
+      fail-fast: false
 
     steps:
       - name: Checkout code
@@ -31,7 +34,7 @@ jobs:
 
       - name: Run download script
         run: |
-          # 假设脚本接受 --group 参数
+          # 动态获取日期或使用传入日期
           python scripts/download_margin.py ${{ matrix.group_index }} 20 --date 20250101
 
       - name: Upload temporary files
@@ -67,6 +70,7 @@ jobs:
           merge-multiple: true
 
       - name: Merge files
+        id: merge_step
         run: |
           python <<EOF
           import pandas as pd
@@ -74,31 +78,37 @@ jobs:
           import os
 
           # 1. 合并 Parquet
-          
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
           if parquet_files:
               df_list = [pd.read_parquet(f) for f in parquet_files]
               full_df = pd.concat(df_list, ignore_index=True)
               full_df.to_parquet("margin.parquet")
-              print(f"Successfully merged {len(parquet_files)} parquet files.")
-
+          
           # 2. 合并 Fail TXT
           txt_files = glob.glob("raw_data/*_fail.txt")
-          if txt_files:
-              with open("fail.txt", "w", encoding="utf-8") as outfile:
+          # 无论是否有错误，都创建一个文件，避免 Release 上传找不到文件
+          with open("fail.txt", "w", encoding="utf-8") as outfile:
+              if txt_files:
                   for fpath in txt_files:
                       with open(fpath, "r", encoding="utf-8") as infile:
                           content = infile.read().strip()
                           if content:
                               outfile.write(content + "\n")
-              print(f"Successfully merged {len(txt_files)} fail logs.")
           EOF
+          
+          # 获取当前日期作为 Tag 名
+          echo "tag_name=data-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
-      - name: Upload Final Results
-        uses: actions/upload-artifact@v4
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
         with:
-          name: final-margin-data
-          path: |
+          tag_name: ${{ steps.merge_step.outputs.tag_name }}
+          name: "Margin Data: ${{ steps.merge_step.outputs.tag_name }}"
+          body: "Automatic daily margin data sync."
+          draft: false
+          prerelease: false
+          files: |
             margin.parquet
             fail.txt
-          retention-days: 90
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
