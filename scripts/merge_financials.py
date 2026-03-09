@@ -1,3 +1,4 @@
+# 合并github 每个group中的数据，按照财报类型统一打包
 import pandas as pd
 import os
 import shutil
