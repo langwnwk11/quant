@@ -7,6 +7,7 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
 import random
+from datetime import datetime, timedelta
 # --- 1. 配置管理 ---
 def get_paths():
     """定义项目路径"""
@@ -31,7 +32,18 @@ def get_task_dates(data_path, start_date_str, group_index, total_groups):
     
     # 确定过滤范围：从输入日期（或默认2025-01-01）到今天
     start_dt = pd.to_datetime(start_date_str)
-    end_dt = datetime.now()
+
+    # 获取当前 UTC 时间并转换为北京时间 (UTC+8)
+    # 如果你的服务器本身就是北京时间，可以直接用 datetime.now()
+    now_beijing = datetime.utcnow() + timedelta(hours=8)    
+    # 逻辑判断：如果当前小时 < 17，则数据可能尚未更新，截止日期设为昨天
+    if now_beijing.hour < 17:
+        end_dt = now_beijing - timedelta(days=1)
+        print(f"🕒 当前北京时间 {now_beijing.strftime('%H:%M')} 早于 17:00，数据可能未出，今日不计入任务。")
+    else:
+        end_dt = now_beijing
+
+    # end_dt = datetime.now()
     
     mask = (df['date'] >= start_dt) & (df['date'] <= end_dt)
     target_dates = sorted(df.loc[mask, 'date'].dt.strftime('%Y%m%d').tolist())
@@ -42,6 +54,7 @@ def get_task_dates(data_path, start_date_str, group_index, total_groups):
 
     # 分组切片
     my_dates = target_dates[group_index::total_groups]
+    # print(my_dates)
     return my_dates
 
 # --- 3. 数据抓取模块 ---
