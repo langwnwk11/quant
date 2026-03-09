@@ -144,7 +144,7 @@ def fetch_full_market_margin(date_str):
     print(f"✅ {date_str} 沪深数据抓取完成 (深市:{len(sz_df)}条, 沪市:{len(sh_df)}条)")
 
     # 适当频率限制，保护 API
-    time.sleep(random.uniform(0.3, 0.8))
+    time.sleep(random.uniform(2.0, 5.0))
     return pd.concat([sz_df, sh_df], ignore_index=True)
 # --- 4. 持久化模块 ---
 def save_results(dfs, failed_dates, paths, group_index):
