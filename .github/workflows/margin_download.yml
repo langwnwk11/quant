@@ -123,8 +123,13 @@ jobs:
           # 获取 tag 下的所有文件名，并逐个删除
           assets=$(gh release view ${{ steps.merge_step.outputs.tag_name }} --json assets --jq '.assets[].name' || echo "")
           for asset in $assets; do
-            echo "Deleting old asset: $asset"
-            gh release delete-asset ${{ steps.merge_step.outputs.tag_name }} "$asset" -y
+            # 仅匹配以 _margin.parquet 或 _margin_fail.txt 结尾的文件
+            if [[ "$asset" == *"_margin.parquet" ]] || [[ "$asset" == *"_margin_fail.txt" ]]; then
+              echo "Deleting historical data asset: $asset"
+              gh release delete-asset "$TAG_NAME" "$asset" -y
+            else
+              echo "Skipping unrelated asset: $asset"
+            fi
           done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
