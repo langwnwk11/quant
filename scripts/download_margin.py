@@ -5,7 +5,8 @@ import pandas as pd
 import akshare as ak
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
+import time
+import random
 # --- 1. 配置管理 ---
 def get_paths():
     """定义项目路径"""
@@ -50,14 +51,88 @@ def get_task_dates(data_path, start_date_str, group_index, total_groups):
     retry=retry_if_exception_type(Exception),
     reraise=True
 )
-def fetch_single_day(date_str):
+def fetch_single_day_szse(date_str):
     """调用 akshare 接口，带 5 次指数退避重试"""
     # 接口文档：stock_margin_detail_szse
     df = ak.stock_margin_detail_szse(date=date_str)
     if df is not None and not df.empty:
+        # 深交所原始列名通常已经是 "证券代码", "证券简称"
+        # 提取相同字段集
+        target_columns = [
+            "证券代码", "证券简称", 
+            "融资余额", "融资买入额", 
+            "融券余量", "融券卖出量"
+        ]
+        
+        # 过滤字段 (如果某列不存在会报错，建议用 try/except 或 reindex)
+        df = df[[c for c in target_columns if c in df.columns]].copy()
+        
+        df['market'] = 'sz'
         df['date'] = date_str
+        
+        numeric_cols = ["融资余额", "融资买入额", "融券余量", "融券卖出量"]
+        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+
     return df
 
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+def fetch_single_day_sse(date_str):
+    """抓取上交所数据"""
+    # 接口文档：stock_margin_detail_sse
+    df = ak.stock_margin_detail_sse(date=date_str)
+    if df is not None and not df.empty:
+        # 1. 定义重命名规则
+        rename_dict = {
+            "标的证券代码": "证券代码",
+            "标的证券简称": "证券简称"
+        }
+        df = df.rename(columns=rename_dict)
+
+        # 2. 核心字段定义 (确保深市也包含这些字段)
+        target_columns = [
+            "证券代码", "证券简称", 
+            "融资余额", "融资买入额", 
+            "融券余量", "融券卖出量"
+        ]
+        
+        # 3. 检查字段是否存在（防止接口变动），并提取
+        df = df[target_columns].copy()
+
+        df['market'] = 'sh'  # 标记市场
+        df['date'] = date_str
+
+        # 5. 确保数值类型正确 (可选，防止 akshare 返回 object 类型)
+        numeric_cols = ["融资余额", "融资买入额", "融券余量", "融券卖出量"]
+        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    return df
+
+def fetch_full_market_margin(date_str):
+    """
+    获取沪深两市数据。
+    任何一侧抓取失败或为空，则视为该日期抓取任务整体失败。
+    """
+    # 1. 抓取深市 (带 retry)
+    sz_df = fetch_single_day_szse(date_str)
+    if sz_df is None or sz_df.empty:
+        raise ValueError(f"深市数据为空: {date_str}")
+
+    # 2. 抓取沪市 (带 retry)
+    sh_df = fetch_single_day_sse(date_str)
+    if sh_df is None or sh_df.empty:
+        raise ValueError(f"沪市数据为空: {date_str}")
+
+    # 3. 只有两者都成功才合并
+    print(f"✅ {date_str} 沪深数据抓取完成 (深市:{len(sz_df)}条, 沪市:{len(sh_df)}条)")
+
+    # 适当频率限制，保护 API
+    time.sleep(random.uniform(0.3, 0.8))
+    return pd.concat([sz_df, sh_df], ignore_index=True)
 # --- 4. 持久化模块 ---
 def save_results(dfs, failed_dates, paths, group_index):
     """保存结果文件与失败记录"""
@@ -108,7 +183,7 @@ def run_pipeline(args):
     for date in my_dates:
         try:
             print(f"正在抓取 [{args.group_index}]: {date}...")
-            data = fetch_single_day(date)
+            data = fetch_full_market_margin(date)
             if data is not None and not data.empty:
                 success_dfs.append(data)
             else:
