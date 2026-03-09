@@ -36,7 +36,7 @@ jobs:
       - name: Run download script
         run: |
           # 使用手动输入的日期，如果没有输入则使用默认值
-          python scripts/download_margin.py ${{ matrix.group_index }} 20 --date ${{ github.event.inputs.target_date }}
+          python -u scripts/download_margin.py ${{ matrix.group_index }} 20 --date ${{ github.event.inputs.target_date }}
 
       - name: Upload temporary files
         uses: actions/upload-artifact@v4
