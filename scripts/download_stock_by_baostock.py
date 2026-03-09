@@ -166,4 +166,14 @@ if __name__ == "__main__":
     parser.add_argument("begin_date", type=str, help="开始日期 (YYYY-MM-DD)")
 
     args = parser.parse_args()
+
+    # --- 新增日期格式化处理逻辑 ---
+    raw_date = args.begin_date.replace("-", "")  # 先去掉可能存在的横杠，统一成 YYYYMMDD
+    if len(raw_date) == 8:
+        # 将 20250101 转换为 2025-01-01
+        formatted_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+        args.begin_date = formatted_date
+    else:
+        # 如果长度不对，抛出错误提示
+        raise ValueError(f"无效的时间格式: {args.begin_date}，请输入 YYYYMMDD")
     run_pipeline(args)
