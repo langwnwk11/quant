@@ -36,7 +36,7 @@ jobs:
       - name: Run download script
         run: |
           # 使用手动输入的日期，如果没有输入则使用默认值
-          python scripts/download_margin.py ${{ matrix.group_index }} 20 --date ${{ github.event.inputs.target_date }}
+          python -u scripts/download_margin.py ${{ matrix.group_index }} 20 --date ${{ github.event.inputs.target_date }}
 
       - name: Upload temporary files
         uses: actions/upload-artifact@v4
@@ -115,12 +115,18 @@ jobs:
               f.write(f"margin_exists={margin_exists}\n")
               f.write(f"tag_name=latest-data\n")
           EOF
-      # 在发布之前增加一个清理步骤
-      - name: Cleanup local workspace
+
+      # 1. 在上传前，先通过 GitHub CLI 删除该 Release 里的旧资产
+      - name: Cleanup existing Release Assets
         run: |
-          echo "Cleaning up old data files..."
-          rm -f *.parquet *.txt
-        shell: bash
+          # 获取 tag 下的所有文件名，并逐个删除
+          assets=$(gh release view ${{ steps.merge_step.outputs.tag_name }} --json assets --jq '.assets[].name' || echo "")
+          for asset in $assets; do
+            echo "Deleting old asset: $asset"
+            gh release delete-asset ${{ steps.merge_step.outputs.tag_name }} "$asset" -y
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
         
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
