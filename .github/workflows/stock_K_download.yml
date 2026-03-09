@@ -139,7 +139,7 @@ jobs:
           else
             for asset in $assets; do
               # 4. 根据后缀决定是否删除 (匹配 stock 或 margin)
-              if [[ "$asset" == *".parquet" ]] || [[ "$asset" == *"_fail.txt" ]]; then
+              if [[ "$asset" == *"stock.parquet" ]] || [[ "$asset" == *"stock_fail.txt" ]]; then
                 echo "Deleting historical asset: $asset from release: $TAG"
                 # 确保这里引用的是上面定义的 $TAG
                 gh release delete-asset "$TAG" "$asset" -y
