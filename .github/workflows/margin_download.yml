@@ -1,3 +1,4 @@
+
 name: Margin Data Download (Manual)
 
 on:
@@ -82,7 +83,7 @@ jobs:
           # 1. 在 Python 内部生成日期
           cur_date = datetime.now().strftime('%Y%m%d')
           target_file = f"{cur_date}_margin.parquet"
-          fail_file = f"{cur_date}_fail.txt"
+          fail_file = f"{cur_date}_margin_fail.txt"
           
           # 2. 合并逻辑
           parquet_files = sorted(glob.glob("raw_data/*_margin.parquet"))
@@ -137,6 +138,6 @@ jobs:
           body: "Last update: ${{ steps.merge_step.outputs.file_date }}"
           files: |
             ${{ steps.merge_step.outputs.file_date }}_margin.parquet
-            ${{ steps.merge_step.outputs.file_date }}_fail.txt
+            ${{ steps.merge_step.outputs.file_date }}_margin_fail.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
