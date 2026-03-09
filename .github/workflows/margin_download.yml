@@ -115,7 +115,13 @@ jobs:
               f.write(f"margin_exists={margin_exists}\n")
               f.write(f"tag_name=latest-data\n")
           EOF
-
+      # 在发布之前增加一个清理步骤
+      - name: Cleanup local workspace
+        run: |
+          echo "Cleaning up old data files..."
+          rm -f *.parquet *.txt
+        shell: bash
+        
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
         if: steps.merge_step.outputs.margin_exists == 'true'
