@@ -120,6 +120,10 @@ jobs:
       # 1. 在上传前，先通过 GitHub CLI 删除该 Release 里的旧资产
       - name: Cleanup existing Release Assets
         run: |
+          # 定义 Shell 变量，确保下面能引用到
+          TARGET_TAG="${{ steps.merge_step.outputs.tag_name }}"
+          
+          echo "Checking assets for tag: $TARGET_TAG"
           # 获取 tag 下的所有文件名，并逐个删除
           assets=$(gh release view ${{ steps.merge_step.outputs.tag_name }} --json assets --jq '.assets[].name' || echo "")
           for asset in $assets; do
