@@ -1,4 +1,4 @@
-name: Financial Data Merge
+name: (Manual)Financial Data Merge
 
 on:
   workflow_dispatch:

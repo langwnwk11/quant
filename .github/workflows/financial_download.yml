@@ -1,11 +1,11 @@
-name: Financial Data Downloader
+name: (Manual)Financial Data Downloader
 
 on:
-  schedule:
-    # 表达式解释：
-    # 分(0) 时(0) 日(8-14) 月(7) 周(0/SUN)
-    # UTC 00:00 对应北京时间 08:00
-    - cron: '0 0 8-14 7 0'
+  # schedule:
+  #   # 表达式解释：
+  #   # 分(0) 时(0) 日(8-14) 月(7) 周(0/SUN)
+  #   # UTC 00:00 对应北京时间 08:00
+  #   - cron: '0 0 8-14 7 0'
   workflow_dispatch:   # 允许手动触发
 # 核心修复：防止多个 Job 同时运行导致推送到 GitHub 时发生冲突
 concurrency:
