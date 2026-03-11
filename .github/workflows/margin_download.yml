@@ -1,5 +1,5 @@
 
-name: Margin Data Download (Manual)
+name: (Manual)Margin Data Download 
 
 on:
   workflow_dispatch: # 仅允许手动触发

@@ -1,6 +1,6 @@
 
 
-name: Stock K Data Download (Manual)
+name: (Manual)Stock K Data Download 
 
 on:
   workflow_dispatch: # 仅允许手动触发
