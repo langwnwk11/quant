@@ -1,0 +1,123 @@
+name: (Manual)Financial PDF Downloader
+
+on:
+  # schedule:
+  #   # 表达式解释：
+  #   # 分(0) 时(0) 日(8-14) 月(7) 周(0/SUN)
+  #   # UTC 00:00 对应北京时间 08:00
+  #   - cron: '0 0 8-14 7 0'
+  workflow_dispatch:   # 允许手动触发
+# 核心修复：防止多个 Job 同时运行导致推送到 GitHub 时发生冲突
+concurrency:
+  group: financial-data-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # --- 第一阶段：分 20 组并行下载 ---
+  download:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: '**/requirements.txt' # 明确路径
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Download Script
+        run: |
+          # 确保目录存在
+          mkdir -p output
+          # 运行你的 Python 脚本
+          python scripts/download_cninfo_pdf.py ${{ matrix.group_index }} 20
+
+      - name: Compress Output
+        run: |
+          # 压缩该组下载的所有文件夹
+          cd output && zip -r ../group_${{ matrix.group_index }}.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: group-data-${{ matrix.group_index }}
+          path: group_${{ matrix.group_index }}_output.zip
+          retention-days: 2
+
+  # --- 第二阶段：合并所有数据 ---
+  # --- 第二阶段：合并所有数据 ---
+  # --- 第二阶段：合并所有数据并打包推送 ---
+  merge:
+    needs: download
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 
+
+      - name: Download all Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: temp_zips
+          pattern: group-data-*
+          merge-multiple: true
+
+      - name: Process and Merge Data
+        run: |
+          # 1. 创建最终存放 pdf 的目录和解压临时目录
+          mkdir -p combined_reports
+          mkdir -p output/finance_pdf
+          
+          # 2. 解压所有组的 zip 到合并目录
+          cd temp_zips
+          for f in *.zip; do
+            unzip -o "$f" -d ../combined_reports/
+          done
+          cd ..
+
+          # 3. 将合并后的所有文件夹打包成一个总的 zip
+          # 使用当前日期命名，或者固定命名
+          REPORT_DATE=$(date +'%Y%m%d')
+          zip -r "output/finance_pdf/annual_reports_${REPORT_DATE}.zip" combined_reports/
+          
+          echo "ZIP_NAME=annual_reports_${REPORT_DATE}.zip" >> $GITHUB_ENV
+
+      - name: Native Git Push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 添加生成的 zip 文件
+          git add output/finance_pdf/*.zip
+          
+          # 检查是否有文件更改，避免空提交报错
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-update: Combined Annual Reports ${{ env.ZIP_NAME }}"
+            
+            # 使用 rebase 模式推送，防止多个 workflow 冲突
+            git pull --rebase origin main
+            git push origin main
+          fi
+      
+  
+     
+    
+     
