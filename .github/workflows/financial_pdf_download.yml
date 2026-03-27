@@ -38,22 +38,28 @@ jobs:
 
       - name: Run Download Script
         run: |
-          # 确保目录存在
           mkdir -p output
-          # 运行你的 Python 脚本
           python scripts/download_cninfo_pdf.py ${{ matrix.group_index }} 20
+          # 调试：查看下载了哪些文件夹
+          ls -F output
 
-      - name: Compress Output
+      - name: Compress Group Output
         run: |
-          # 压缩该组下载的所有文件夹
-          cd output && zip -r ../group_${{ matrix.group_index }}.zip
+          cd output
+          # 确保有内容才压缩，使用 "." 包含所有子文件夹
+          if [ -n "$(ls -A)" ]; then
+            zip -r "../group_${{ matrix.group_index }}.zip" .
+          else
+            echo "Directory is empty, skipping..."
+            touch "../empty_${{ matrix.group_index }}.txt" # 创建空标记防止上传报错
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: group-data-${{ matrix.group_index }}
-          path: group_${{ matrix.group_index }}_output.zip
-          retention-days: 2
+          path: group_*.zip
+          retention-days: 1
 
   # --- 第二阶段：合并所有数据 ---
   # --- 第二阶段：合并所有数据 ---
@@ -80,24 +86,17 @@ jobs:
 
       - name: Process and Merge Data
         run: |
-          # 1. 创建最终存放 pdf 的目录和解压临时目录
-          mkdir -p combined_reports
+          mkdir -p final_merge
           mkdir -p output/finance_pdf
           
-          # 2. 解压所有组的 zip 到合并目录
-          cd temp_zips
-          for f in *.zip; do
-            unzip -o "$f" -d ../combined_reports/
-          done
-          cd ..
-
-          # 3. 将合并后的所有文件夹打包成一个总的 zip
-          # 使用当前日期命名，或者固定命名
-          REPORT_DATE=$(date +'%Y%m%d')
-          zip -r "output/finance_pdf/annual_reports_${REPORT_DATE}.zip" combined_reports/
+          # 解压所有组的内容到 final_merge
+          if [ -d "temp_zips" ]; then
+            find temp_zips -name "*.zip" -exec unzip -o {} -d final_merge/ \;
+          fi
           
-          echo "ZIP_NAME=annual_reports_${REPORT_DATE}.zip" >> $GITHUB_ENV
-
+          # 打包最终成品
+          REPORT_DATE=$(date +'%Y%m%d')
+          zip -r "output/finance_pdf/annual_reports_${REPORT_DATE}.zip" final_merge/
       - name: Native Git Push
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
