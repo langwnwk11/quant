@@ -116,11 +116,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cleanup Old Releases (Older than 5 days)
-        uses: dev-drpradheep/delete-older-releases@v0.3.0
+      - name: Delete Old Releases
+        uses: actions/github-script@v7
         with:
-          keep_latest: 3
-          delete_older_than: 5d
-          delete_tags: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const daysToKeep = 5;
+            const msToKeep = daysToKeep * 24 * 60 * 60 * 1000;
+            const threshold = new Date(Date.now() - msToKeep);
+
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            for (const release of releases) {
+              const releaseDate = new Date(release.created_at);
+              if (releaseDate < threshold) {
+                console.log(`Deleting release ${release.tag_name}...`);
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: release.id,
+                });
+                // 可选：同时删除对应的 tag
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${release.tag_name}`,
+                });
+              }
+            }
