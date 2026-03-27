@@ -10,3 +10,5 @@ h5py
 PyDrive2
 tenacity
 tables
+requests
+tqdm
