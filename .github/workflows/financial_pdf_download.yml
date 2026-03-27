@@ -89,24 +89,38 @@ jobs:
           mkdir -p final_merge
           mkdir -p output/finance_pdf
           
-          # 解压所有组的内容到 final_merge
+          # 解压所有组的内容
           if [ -d "temp_zips" ]; then
             find temp_zips -name "*.zip" -exec unzip -o {} -d final_merge/ \;
           fi
           
-          # 打包最终成品
-          REPORT_DATE=$(date +'%Y%m%d')
+          # 1. 定义时间戳
+          REPORT_DATE=$(date +'%Y%m%d%H%M')
+          TAG_NAME="reports-${REPORT_DATE}"
+          
+          # 2. 【关键修复】将变量写入 $GITHUB_ENV 供后续 Step 使用
+          echo "RELEASE_TAG=${TAG_NAME}" >> $GITHUB_ENV
+          
+          # 3. 打包
           zip -r "output/finance_pdf/annual_reports_${REPORT_DATE}.zip" final_merge/
       
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
+        if: env.RELEASE_TAG != ''
         with:
-          tag_name: reports-${{ env.ZIP_NAME }}
+          # 4. 使用 env. 引用上面写入的环境变量
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Annual Reports - ${{ env.RELEASE_TAG }}"
           files: output/finance_pdf/*.zip
+          body: "Auto-generated reports. This release will be kept for 5 days."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-  
-     
-    
-     
+
+      - name: Cleanup Old Releases (Older than 5 days)
+        uses: dev-drpradheep/delete-older-releases@v0.3.0
+        with:
+          keep_latest: 3
+          delete_older_than: 5d
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
