@@ -13,7 +13,7 @@ def get_paths():
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return {
         "base_stock_path": os.path.join(root_dir, "data", "baseData", "stock.parquet"),
-        "finace_stock_path": os.path.join(root_dir, "data", "baseData", "unique_security_codes1.parquet"),
+        "finace_stock_path": os.path.join(root_dir, "data", "baseData", "unique_security_codes_1.parquet"),
         "output_dir": os.path.join(root_dir, "output"),
         "fail_log": os.path.join(root_dir, "output", "{}_fail.txt"),
         "result_pqt": os.path.join(root_dir, "output", "{}_stock.parquet")
