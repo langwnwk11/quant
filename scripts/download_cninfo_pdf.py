@@ -13,7 +13,7 @@ def get_paths():
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return {
         "base_stock_path": os.path.join(root_dir, "data", "baseData", "stock.parquet"),
-        "finace_stock_path": os.path.join(root_dir, "data", "baseData", "unique_security_codes_1.parquet"),
+        "finace_stock_path": os.path.join(root_dir, "data", "baseData", "unique_security_codes.parquet"),
         "output_dir": os.path.join(root_dir, "output"),
         "fail_log": os.path.join(root_dir, "output", "{}_fail.txt"),
         "result_pqt": os.path.join(root_dir, "output", "{}_stock.parquet")
@@ -171,7 +171,7 @@ if __name__ == "__main__":
     os.makedirs(paths["output_dir"], exist_ok=True)
     my_codes = get_stock_list(paths["finace_stock_path"], args.group_index, args.total_groups)
     print(f"正在处理 {len(my_codes)} 个股票代码...")
-    my_codes = my_codes[:1]  # 测试阶段先限制数量，正式运行时注释掉
+    # my_codes = my_codes[:1]  # 测试阶段先限制数量，正式运行时注释掉
     for stock_code in my_codes:
         print(f"正在处理 {stock_code}...")
         try:
