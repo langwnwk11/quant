@@ -1,14 +1,9 @@
-name: (Manual)Financial PDF Downloader
+name: (Manual) Financial PDF Downloader to Hugging Face
 
 on:
   workflow_dispatch:
 
-concurrency:
-  group: financial-data-sync-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  # --- 第一阶段：并行下载并使用 7z 压缩 ---
   download:
     runs-on: ubuntu-latest
     strategy:
@@ -24,11 +19,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y p7zip-full
+          pip install huggingface_hub
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run Download Script
@@ -37,91 +32,39 @@ jobs:
           python scripts/download_cninfo_pdf.py ${{ matrix.group_index }} 20
 
       - name: Compress Group Output with 7z
+        id: compress
         run: |
-          # 移除 -qs 参数，保留核心压缩参数
           if [ -n "$(ls -A output)" ]; then
-            # a: 添加到压缩包
-            # -t7z: 使用 7z 格式
-            # -m0=lzma2: 使用 LZMA2 算法
-            # -mx=9: 极致压缩等级
-            # -ssw: (可选) 如果文件正在被读取，强制压缩
+            # 压缩成 group_X.7z
             cd output && 7z a -t7z -m0=lzma2 -mx=9 "../group_${{ matrix.group_index }}.7z" .
+            echo "has_files=true" >> $GITHUB_OUTPUT
           else
-            echo "Empty directory, creating dummy file."
-            touch "../empty_${{ matrix.group_index }}.txt"
+            echo "Empty directory, skipping."
+            echo "has_files=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: group-data-${{ matrix.group_index }}
-          path: |
-            *.7z
-            empty_*.txt
-          retention-days: 1
-
-  # --- 第二阶段：收集并发布 7z 文件 ---
-  merge:
-    needs: download
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    timeout-minutes: 60
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release_assets
-          pattern: group-data-*
-          merge-multiple: true
-
-      - name: Prepare Release Info
-        id: info
-        run: |
-          REPORT_DATE=$(date +'%Y%m%d%H%M')
-          echo "RELEASE_TAG=reports-${REPORT_DATE}" >> $GITHUB_ENV
-          echo "date=${REPORT_DATE}" >> $GITHUB_OUTPUT
-          ls -lh release_assets/
-
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v2
-        if: env.RELEASE_TAG != ''
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: "Annual Reports (7z) - ${{ env.RELEASE_TAG }}"
-          # 更改为识别 .7z 文件
-          files: release_assets/*.7z 
-          body: |
-            Automatic Financial Reports Sync (High Compression Mode)
-            Date: ${{ steps.info.outputs.date }}
-            Format: 7-Zip (LZMA2)
-            Note: Use 7-Zip or WinRAR to extract these files for best results.
-          fail_on_unmatched_files: false
+      - name: Upload to Hugging Face
+        if: steps.compress.outputs.has_files == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # --- 第三阶段：清理 4 天前的旧 Release ---
-      - name: Delete Old Releases (Older than 4 days)
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const daysToKeep = 4;
-            const threshold = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000);
-            const { data: releases } = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-
-            for (const release of releases) {
-              if (new Date(release.created_at) < threshold) {
-                console.log(`Deleting old release: ${release.tag_name}`);
-                await github.rest.repos.deleteRelease({ owner: context.repo.owner, repo: context.repo.repo, release_id: release.id });
-                try {
-                  await github.rest.git.deleteRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${release.tag_name}` });
-                } catch (e) {}
-              }
-            }
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # 获取当前日期作为远程目录名
+          REPORT_DATE=$(date +'%Y%m%d')
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi()
+          # 替换为你的 HF 用户名/仓库名
+          REPO_ID = 'langwnwk/finacial-pdf' 
+          FILE_PATH = 'group_${{ matrix.group_index }}.7z'
+          REMOTE_PATH = f'{REPORT_DATE}/group_${{ matrix.group_index }}.7z'
+          
+          print(f'Uploading {FILE_PATH} to HF...')
+          api.upload_file(
+              path_or_fileobj=FILE_PATH,
+              path_in_repo=REMOTE_PATH,
+              repo_id=REPO_ID,
+              repo_type='dataset', # 建议存放在 dataset 类型下
+              token=os.environ['HF_TOKEN']
+          )
+          "
