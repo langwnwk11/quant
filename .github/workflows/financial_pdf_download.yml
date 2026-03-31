@@ -69,50 +69,47 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 60 # 即使文件很大，1小时也绰绰有余
   
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0 
 
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: temp_zips
+          path: all_groups_temp  # 下载所有 group_x.zip 到此目录
           pattern: group-data-*
           merge-multiple: true
 
-      - name: Process and Merge Data
+      - name: Create Final Big Zip
         run: |
-          mkdir -p final_merge
           mkdir -p output/finance_pdf
-          
-          # 解压所有组的内容
-          if [ -d "temp_zips" ]; then
-            find temp_zips -name "*.zip" -exec unzip -o {} -d final_merge/ \;
-          fi
-          
-          # 1. 定义时间戳
           REPORT_DATE=$(date +'%Y%m%d%H%M')
-          TAG_NAME="reports-${REPORT_DATE}"
+          echo "RELEASE_TAG=reports-${REPORT_DATE}" >> $GITHUB_ENV
           
-          # 2. 【关键修复】将变量写入 $GITHUB_ENV 供后续 Step 使用
-          echo "RELEASE_TAG=${TAG_NAME}" >> $GITHUB_ENV
+          echo "--- Current File List ---"
+          ls -lh all_groups_temp/
           
-          # 3. 打包
-          zip -r "output/finance_pdf/annual_reports_${REPORT_DATE}.zip" final_merge/
-      
+          echo "Packing all groups into one final zip..."
+          # 【关键点】使用 -0 (store) 模式，不进行二次压缩，只是打包
+          # 这样处理 5GB 的数据也只需要几十秒
+          zip -0 -q "output/finance_pdf/annual_reports_all_groups_${REPORT_DATE}.zip" all_groups_temp/*.zip
+          
+          # 清理临时目录，释放空间给后续的 Release 上传步骤
+          rm -rf all_groups_temp
+          
+          echo "Done. Final package size:"
+          du -sh output/finance_pdf/
+
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
         if: env.RELEASE_TAG != ''
         with:
-          # 4. 使用 env. 引用上面写入的环境变量
           tag_name: ${{ env.RELEASE_TAG }}
           name: "Annual Reports - ${{ env.RELEASE_TAG }}"
           files: output/finance_pdf/*.zip
-          body: "Auto-generated reports. This release will be kept for 5 days."
+          body: "This ZIP contains 20 group sub-archives. Download and extract once to see all groups."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -121,28 +118,18 @@ jobs:
         with:
           script: |
             const daysToKeep = 5;
-            const msToKeep = daysToKeep * 24 * 60 * 60 * 1000;
-            const threshold = new Date(Date.now() - msToKeep);
-
+            const threshold = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000);
             const { data: releases } = await github.rest.repos.listReleases({
               owner: context.repo.owner,
               repo: context.repo.repo,
             });
 
             for (const release of releases) {
-              const releaseDate = new Date(release.created_at);
-              if (releaseDate < threshold) {
-                console.log(`Deleting release ${release.tag_name}...`);
-                await github.rest.repos.deleteRelease({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  release_id: release.id,
-                });
-                // 可选：同时删除对应的 tag
-                await github.rest.git.deleteRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: `tags/${release.tag_name}`,
-                });
+              if (new Date(release.created_at) < threshold) {
+                console.log(`Deleting old release: ${release.tag_name}`);
+                await github.rest.repos.deleteRelease({ owner: context.repo.owner, repo: context.repo.repo, release_id: release.id });
+                try {
+                  await github.rest.git.deleteRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${release.tag_name}` });
+                } catch (e) {}
               }
             }
