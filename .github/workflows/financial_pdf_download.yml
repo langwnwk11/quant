@@ -7,7 +7,7 @@ jobs:
   download:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false # 即使一个组失败，其他组也继续运行
       matrix:
         group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     
@@ -35,37 +35,54 @@ jobs:
         id: compress
         run: |
           if [ -n "$(ls -A output)" ]; then
-            # 压缩成 group_X.7z
             cd output && 7z a -t7z -m0=lzma2 -mx=9 "../group_${{ matrix.group_index }}.7z" .
             echo "has_files=true" >> $GITHUB_OUTPUT
+            # 清理原始文件以释放磁盘空间
+            cd .. && rm -rf output
           else
             echo "Empty directory, skipping."
             echo "has_files=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to Hugging Face
+      - name: Upload to Hugging Face (With Retry)
         if: steps.compress.outputs.has_files == 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 获取当前日期作为远程目录名
-          # REPORT_DATE=$(date +'%Y%m%d')
           python -c "
-          from huggingface_hub import HfApi
           import os
-          api = HfApi()
-          # 替换为你的 HF 用户名/仓库名
-          REPO_ID = 'langwnwk/finacial-pdf' 
-          FILE_PATH = 'group_${{ matrix.group_index }}.7z'
-          # REMOTE_PATH = f'{REPORT_DATE}/group_${{ matrix.group_index }}.7z'
-          REMOTE_PATH = f'group_${{ matrix.group_index }}.7z'
-          
-          print(f'Uploading {FILE_PATH} to HF...')
-          api.upload_file(
-              path_or_fileobj=FILE_PATH,
-              path_in_repo=REMOTE_PATH,
-              repo_id=REPO_ID,
-              repo_type='dataset', # 建议存放在 dataset 类型下
-              token=os.environ['HF_TOKEN']
-          )
+          import time
+          from huggingface_hub import HfApi
+
+          def upload_with_retry():
+              api = HfApi()
+              repo_id = 'langwnwk/finacial-pdf'
+              file_path = 'group_${{ matrix.group_index }}.7z'
+              remote_path = f'group_${{ matrix.group_index }}.7z'
+              token = os.environ['HF_TOKEN']
+              
+              max_retries = 5
+              for attempt in range(max_retries):
+                  try:
+                      print(f'Attempt {attempt + 1}: Uploading {file_path}...')
+                      api.upload_file(
+                          path_or_fileobj=file_path,
+                          path_in_repo=remote_path,
+                          repo_id=repo_id,
+                          repo_type='dataset',
+                          token=token
+                      )
+                      print('Upload successful!')
+                      return
+                  except Exception as e:
+                      print(f'Error: {e}')
+                      if attempt < max_retries - 1:
+                          sleep_time = (attempt + 1) * 15 # 依次等待 15s, 30s, 45s...
+                          print(f'Retrying in {sleep_time}s...')
+                          time.sleep(sleep_time)
+                      else:
+                          print('Max retries reached. Upload failed.')
+                          exit(1)
+
+          upload_with_retry()
           "
