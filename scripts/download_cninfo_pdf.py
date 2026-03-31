@@ -171,7 +171,7 @@ if __name__ == "__main__":
     os.makedirs(paths["output_dir"], exist_ok=True)
     my_codes = get_stock_list(paths["finace_stock_path"], args.group_index, args.total_groups)
     print(f"正在处理 {len(my_codes)} 个股票代码...")
-    # my_codes = my_codes[:1]  # 测试阶段先限制数量，正式运行时注释掉
+    my_codes = my_codes[:1]  # 测试阶段先限制数量，正式运行时注释掉
     for stock_code in my_codes:
         print(f"正在处理 {stock_code}...")
         try:
