@@ -38,13 +38,14 @@ jobs:
 
       - name: Compress Group Output with 7z
         run: |
-          # a: 添加到压缩包
-          # -t7z: 使用 7z 格式
-          # -m0=lzma2: 使用最强的 LZMA2 算法
-          # -mx=9: 极致压缩等级
-          # -qs: 按照文件名排序压缩（有助于提高重复数据的压缩率）
+          # 移除 -qs 参数，保留核心压缩参数
           if [ -n "$(ls -A output)" ]; then
-            cd output && 7z a -t7z -m0=lzma2 -mx=9 -qs "../group_${{ matrix.group_index }}.7z" .
+            # a: 添加到压缩包
+            # -t7z: 使用 7z 格式
+            # -m0=lzma2: 使用 LZMA2 算法
+            # -mx=9: 极致压缩等级
+            # -ssw: (可选) 如果文件正在被读取，强制压缩
+            cd output && 7z a -t7z -m0=lzma2 -mx=9 "../group_${{ matrix.group_index }}.7z" .
           else
             echo "Empty directory, creating dummy file."
             touch "../empty_${{ matrix.group_index }}.txt"
