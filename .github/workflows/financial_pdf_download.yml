@@ -49,7 +49,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           # 获取当前日期作为远程目录名
-          REPORT_DATE=$(date +'%Y%m%d')
+          # REPORT_DATE=$(date +'%Y%m%d')
           python -c "
           from huggingface_hub import HfApi
           import os
@@ -57,7 +57,8 @@ jobs:
           # 替换为你的 HF 用户名/仓库名
           REPO_ID = 'langwnwk/finacial-pdf' 
           FILE_PATH = 'group_${{ matrix.group_index }}.7z'
-          REMOTE_PATH = f'{REPORT_DATE}/group_${{ matrix.group_index }}.7z'
+          # REMOTE_PATH = f'{REPORT_DATE}/group_${{ matrix.group_index }}.7z'
+          REMOTE_PATH = f'group_${{ matrix.group_index }}.7z'
           
           print(f'Uploading {FILE_PATH} to HF...')
           api.upload_file(
