@@ -227,10 +227,10 @@ def main(group_index, total_groups, task_type):
 
 if __name__ == "__main__":
     # 参数解释：脚本名 组别索引(0-19) 总组数(20) 任务类型(0:普通/1:仅修复历史失败)
-    main(0,20,0)
+    # main(0,20,0)
     if len(sys.argv) < 4:
         print("Usage: python script.py <GROUP_INDEX> <TOTAL_GROUPS> <TASK_TYPE>")
         print("Example: python script.py 0 20 0")
     else:
-        # main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
-        main(0,20,0)
+        main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
+        # main(0,20,0)
