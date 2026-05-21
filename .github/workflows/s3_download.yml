@@ -1,0 +1,156 @@
+name: (Manual)Sw3 Industry Cons Downloader
+
+on:
+  # schedule:
+  #   # 每周一到周五 北京时间 18:00 运行 (UTC 10:00)
+  #   - cron: '0 10 * * 1-5'
+  workflow_dispatch:   # 允许手动触发
+
+# 防止多个 Job 同时运行导致推送到 GitHub 时发生冲突
+concurrency:
+  group: sw3-data-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # --- 第一阶段：分 20 组并行下载 ---
+  download:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: '**/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 动态安装所需的第三方库
+          pip install pandas akshare requests lxml pyarrow tenacity
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Download Script
+        run: |
+          mkdir -p output
+          # 运行 Python 脚本
+          # 参数：<组别索引> <总组数 20> <任务类型 0:标准全量>
+          python scripts/download_sw3.py ${{ matrix.group_index }} 20 0
+
+      - name: Compress Output
+        run: |
+          # 将当前组的 output 目录压缩，包含 sw3_cons 文件夹和日志 txt
+          zip -r group_${{ matrix.group_index }}_output.zip output/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: group-data-${{ matrix.group_index }}
+          path: group_${{ matrix.group_index }}_output.zip
+          retention-days: 2
+
+  # --- 第二阶段：合并所有数据并推送日志 ---
+  merge:
+    needs: download
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 
+  
+      - name: Download all Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all_outputs
+          pattern: group-data-*
+          merge-multiple: true
+  
+      - name: Process and Merge Data
+        run: |
+          # 1. 创建符合新业务的目录结构
+          mkdir -p final_output/sw3_cons/
+          mkdir -p log/financial/
+  
+          # 2. 遍历解压并合并
+          for zipfile in all_outputs/*.zip; do
+            unzip -q -o "$zipfile" -d temp_extract/
+            
+            # 移动申万三级行业数据文件 (Parquet) 到最终归集目录
+            cp -n temp_extract/output/sw3_cons/*.parquet final_output/sw3_cons/ 2>/dev/null || true
+            
+            # 使用 awk 确保每个文本合并时末尾有换行符，防止记录粘连
+            if [ -d "temp_extract/output" ]; then
+              awk '1' temp_extract/output/*_task.txt >> raw_task.txt 2>/dev/null || true
+              awk '1' temp_extract/output/*_success.txt >> raw_log.txt 2>/dev/null || true
+              awk '1' temp_extract/output/*_fail.txt >> raw_fail.txt 2>/dev/null || true
+            fi
+            
+            rm -rf temp_extract/
+          done
+  
+          # 3. 排序去重并清理空行，输出到历史 log 存储区
+          if [ -f raw_task.txt ]; then
+            sort -u raw_task.txt | sed '/^$/d' > log/financial/task.txt
+          else
+            touch log/financial/task.txt
+          fi
+  
+          if [ -f raw_log.txt ]; then
+            sort -u raw_log.txt | sed '/^$/d' > log/financial/log.txt
+          else
+            touch log/financial/log.txt
+          fi
+  
+          if [ -f raw_fail.txt ]; then
+            sort -u raw_fail.txt | sed '/^$/d' > log/financial/fail.txt
+          else
+            touch log/financial/fail.txt
+          fi
+          
+          # 4. 拷贝一份日志到 Artifact 归档目录中
+          cp log/financial/*.txt final_output/
+
+      - name: Native Git Push
+        run: |
+          # 1. 配置 Git 机器人身份
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # 2. 切回主分支
+          git checkout main
+          
+          # 3. 仅跟踪并提交增量日志状态文本文件（大数据 parquet 建议在底层用 Artifact 留存）
+          git add log/financial/*.txt
+          
+          # 4. 检查是否有数据状态变更
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: update sw3 download logs [skip ci]"
+            
+            # 5. 采用 rebase 策略拉取远程更新，保证线性提交，拒绝 Merge 冲突
+            git pull origin main --rebase
+            
+            # 6. 推送回仓库
+            git push origin main
+          fi
+
+      - name: Upload Final Combined Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: finalized-sw3-data
+          path: final_output/
+          retention-days: 90
