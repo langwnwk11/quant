@@ -12,8 +12,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # --- 预备阶段：检查或初始化基础信息表 ---
+  init:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas akshare requests lxml pyarrow tenacity
+
+      - name: Check and Download sw3_info
+        run: |
+          mkdir -p data/baseData
+          # 运行你的下载脚本（传入特殊参数让它只生成/检查 sw3_info.parquet，或者直接用 inline python 触发它）
+          # 提示：因为 download_sw3.py 内部已经有“不存在则下载”的逻辑，这里直接随便传一个组号运行一次，让它安全地在单线程下把基础表生成出来。
+          python scripts/download_sw3.py 0 20 0
+          
+      - name: Upload sw3_info Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sw3-info-base
+          path: data/baseData/sw3_info.parquet
+          retention-days: 1
+
   # --- 第一阶段：分 20 组并行下载 ---
   download:
+    needs: init
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,6 +67,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas akshare requests lxml pyarrow tenacity
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 下载前面 init 阶段生成好的基础文件，确保 20 个并发矩阵都有这个文件，不会重复下载
+      - name: Download sw3_info Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sw3-info-base
+          path: data/baseData
 
       - name: Run Download Script
         run: |
@@ -77,12 +115,20 @@ jobs:
         run: |
           pip install pandas pyarrow
   
+      # 下载矩阵产生的 20 个分片数据
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
         with:
           path: all_outputs
           pattern: group-data-*
           merge-multiple: true
+
+      # ✨【新增】同时把 init 阶段的基础信息表下载下来，用于最后一起提交仓库
+      - name: Download sw3_info for Commit
+        uses: actions/download-artifact@v4
+        with:
+          name: sw3-info-base
+          path: data/baseData
   
       - name: Process and Merge Data
         run: |
@@ -113,7 +159,7 @@ jobs:
           
           cp log/financial/*.txt final_output/
 
-      # ✨ 【新增步骤】：运行行内 Python 脚本，将所有细分行业 Parquet 合并为一个大总表
+      # 运行行内 Python 脚本，将所有细分行业 Parquet 合并为一个大总表
       - name: Combine All Parquets into One Big Parquet
         run: |
           python -c "
@@ -123,7 +169,6 @@ jobs:
           src_dir = Path('final_output/sw3_cons')
           dest_file = Path('data/baseData/stock_by_sw3.parquet')
           
-          # 寻找所有下载好的行业成分 parquet 文件
           files = list(src_dir.glob('*.parquet'))
           if not files:
               print('❌ 未找到任何可合并的行业 Parquet 文件')
@@ -134,7 +179,6 @@ jobs:
           for f in files:
               try:
                   df = pd.read_parquet(f)
-                  # 注入一列【所属行业代码】，方便后续大表反查
                   df['所属行业代码'] = f.stem
                   df_list.append(df)
               except Exception as e:
@@ -142,14 +186,13 @@ jobs:
                   
           if df_list:
               final_df = pd.concat(df_list, ignore_index=True)
-              # 去重处理（防止不同行业间有交叉重叠或旧数据干扰）
               final_df.drop_duplicates(inplace=True)
               dest_file.parent.mkdir(parents=True, exist_ok=True)
               final_df.to_parquet(dest_file)
               print(f'✅ 大总表已成功生成并保存至: {dest_file}，共包含 {len(final_df)} 行数据。')
           "
 
-      # ✨ 【修改步骤】：将合并后的总表和日志一并推送回 GitHub 仓库
+      # ✨【修改步骤】：将合并后的总表、基础信息表和日志一并推送回 GitHub 仓库
       - name: Native Git Push
         run: |
           # 1. 配置 Git 身份
@@ -159,15 +202,16 @@ jobs:
           # 2. 切回主分支并拉取最新的状态
           git checkout main
           
-          # 3. 同时跟踪【状态日志】以及【大总表 parquet 数据】
+          # 3. 跟踪【状态日志】、【大总表】以及【新增的基础信息表 sw3_info.parquet】
           git add log/financial/*.txt
           git add data/baseData/stock_by_sw3.parquet
+          git add data/baseData/sw3_info.parquet
           
-          # 4. 只有在真正有变化（日志有更新或股票成份有变动）时才提交
+          # 4. 只有在真正有变化时才提交
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "data/docs: merge all sw3 parquets & update download logs [skip ci]"
+            git commit -m "data/docs: merge all sw3 parquets, update sw3_info & download logs [skip ci]"
             
             # 使用 rebase 避免分布式冲突
             git pull origin main --rebase
