@@ -121,7 +121,7 @@ jobs:
           from pathlib import Path
           
           src_dir = Path('final_output/sw3_cons')
-          dest_file = Path('data/baseData/sw3.parquet')
+          dest_file = Path('data/baseData/stock_by_sw3.parquet')
           
           # 寻找所有下载好的行业成分 parquet 文件
           files = list(src_dir.glob('*.parquet'))
@@ -161,7 +161,7 @@ jobs:
           
           # 3. 同时跟踪【状态日志】以及【大总表 parquet 数据】
           git add log/financial/*.txt
-          git add data/baseData/sw3.parquet
+          git add data/baseData/stock_by_sw3.parquet
           
           # 4. 只有在真正有变化（日志有更新或股票成份有变动）时才提交
           if git diff --staged --quiet; then

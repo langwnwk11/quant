@@ -168,7 +168,7 @@ def repair_download(group_index):
 def init_base_data():
     """初始化基础数据：若不存在则下载 sw3.parquet"""
     BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    sw3_file = BASE_DATA_DIR / "sw3.parquet"
+    sw3_file = BASE_DATA_DIR / "sw3_info.parquet"
     
     if not sw3_file.exists():
         print("🌐 未发现本地基础数据，开始从 AkShare 下载申万三级行业信息...")
