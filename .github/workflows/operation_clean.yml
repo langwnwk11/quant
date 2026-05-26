@@ -30,7 +30,7 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas pyarrow openai tenacity
+        pip install pandas pyarrow openai tenacity langchain_core
 
     - name: Run Data Cleaning Script
       env:
