@@ -34,7 +34,7 @@ jobs:
 
     - name: Run Data Cleaning Script
       env:
-        GITHUB_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+        MYGITHUB_TOKEN: ${{ secrets.MYGITHUB_TOKEN }}
         STRATEGY_GROUP_IDX: ${{ matrix.group_idx }}
         STRATEGY_TOTAL_GRP: 20  # 更改为总共 20 组
       run: |
