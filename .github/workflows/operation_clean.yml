@@ -1,4 +1,4 @@
-name: A-Share Industry Mapping Pipeline (20 Groups & Auto Merge)
+name: (Manual)A-Share Industry Mapping Pipeline (20 Groups & Auto Merge)
 
 on:
   workflow_dispatch: # 仅保留手动触发
