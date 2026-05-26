@@ -1,0 +1,116 @@
+name: A-Share Industry Mapping Pipeline (20 Groups & Auto Merge)
+
+on:
+  workflow_dispatch: # 仅保留手动触发
+
+jobs:
+  # =====================================================================
+  # 阶段一：分批跑数（20个组排队跑，防止 LLM 触发限流）
+  # =====================================================================
+  data_cleaning_matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      # ⚠️ 极其重要：免费 LLM 限流严格，建议设为 1（串行轮询），最多不超过 2。
+      max-parallel: 1 
+      
+      # 定义 20 个组的索引 (0 到 19)
+      matrix:
+        group_idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas pyarrow openai tenacity
+
+    - name: Run Data Cleaning Script
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+        STRATEGY_GROUP_IDX: ${{ matrix.group_idx }}
+        STRATEGY_TOTAL_GRP: 20  # 更改为总共 20 组
+      run: |
+        python scripts/operationTypeClean/call_llm.py
+
+    - name: Upload Group Result Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        # 每个组上传自己独立的切片文件
+        name: mapping-result-group-${{ matrix.group_idx }}
+        path: mapping_result_group_${{ matrix.group_idx }}.csv
+        retention-days: 1 # 临时切片文件只需保留 1 天，供下一步合并即可
+
+  # =====================================================================
+  # 阶段二：自动化合并所有组的结果
+  # =====================================================================
+  merge_results:
+    runs-on: ubuntu-latest
+    # ⚠️ 核心逻辑：必须等待前置的 20 个矩阵任务全部【成功完成】才触发
+    needs: data_cleaning_matrix
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Download All Group Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        # 不指定 name 会默认把前面步骤上传的所有 artifacts 全部下载到当前目录
+        path: ./all_groups_download
+
+    - name: Execute Merge Script
+      run: |
+        python - <<EOF
+        import os
+        import pandas as pd
+        import glob
+
+        print("开始搜寻并合并 CSV 文件...")
+        # 递归查找下载下来的所有组的临时 CSV
+        csv_files = glob.glob('./all_groups_download/**/*.csv', recursive=True)
+        print(f"共发现 {len(csv_files)} 个分片结果文件。")
+
+        combined_df_list = []
+        for file in csv_files:
+            try:
+                # 读取各组数据
+                df = pd.read_csv(file)
+                if not df.empty:
+                    combined_df_list.append(df)
+            except Exception as e:
+                print(f"读取文件 {file} 失败: {e}")
+
+        if combined_df_list:
+            # 合并所有数据
+            final_df = pd.concat(combined_df_list, ignore_index=True)
+            
+            # 证券数据清洗常态：根据‘公司名称’和‘主营构成’进行去重，防止脏数据
+            final_df.drop_duplicates(subset=['公司名称', '主营构成'], keep='first', inplace=True)
+            
+            # 导出最终大文件
+            output_file = "A_share_industry_mapping_ALL.csv"
+            final_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+            print(f"🎉 所有数据合并成功！最终记录数: {len(final_df)} 行。文件已保存至: {output_file}")
+        else:
+            print("❌ 未找到任何有效的组数据，无法合并。")
+        EOF
+
+    - name: Upload Final Consolidated Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: A_share_industry_mapping_TOTAL_RESULT # 网页上下载的总包名称
+        path: A_share_industry_mapping_ALL.csv     # 要打包的文件
+        retention-days: 10                          # 🎯 严格满足你的要求：最长保留 10 天
