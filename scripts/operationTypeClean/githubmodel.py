@@ -22,7 +22,7 @@ class GitHubLLMClient:
         初始化 GitHub LLM 客户端
         """
         self.base_url = "https://models.inference.ai.azure.com"
-        self.token = os.environ.get("GITHUB_TOKEN")
+        self.token = os.environ.get("MYGITHUB_TOKEN")
         
         if not self.token:
             raise ValueError("未检测到环境变量 'GITHUB_TOKEN'，请先设置后再运行。")
