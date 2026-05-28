@@ -121,6 +121,7 @@ def build_system_prompt(pool: List[str]) -> str:
 - 【唯一映射】：每行公司数据只能映射到一个最核心的申万分类，不允许返回多个分类。
 - 【无法映射处理】：如果没有任何依据能放入池中，请将其统一映射为 "无法匹配"。
 - 【严禁解释】：你的回答中只能包含指定格式的最终结果，绝对不要包含任何 markdown 代码块标记（如 ``` ）、分析过程或导语。
+- 【绝对全覆盖】：本次输入的待处理公司数据较多，你必须逐行分析并映射，100% 覆盖输入的每一家公司。绝对不允许漏掉、省略、或使用“等等”进行概括。输入多少行，你的 CSV 结果就必须输出多少行！
 
 # Output Format
 请严格按照以下 CSV 格式输出结果：
@@ -252,8 +253,8 @@ async def run_pipeline(
         # 持久化保存
         if combined_csv_lines:
             OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
-            output_file = OUTPUT_BASE / f"mapping_result_group_{group_index}.csv"
-
+            # output_file = OUTPUT_BASE / f"mapping_result_group_{group_index}.csv"
+            output_file = f"mapping_result_group_{group_index}.csv"
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write("公司名称,主营构成,映射申万分类\n")
                 f.write("\n".join(combined_csv_lines) + "\n")
