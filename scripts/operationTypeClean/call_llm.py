@@ -255,7 +255,7 @@ async def run_pipeline(
             OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
             # output_file = OUTPUT_BASE / f"mapping_result_group_{group_index}.csv"
             output_file = f"mapping_result_group_{group_index}.csv"
-            with open(output_file, "w", encoding="utf-8") as f:
+            with open(output_file, "w", encoding="utf-8-sig") as f:
                 f.write("公司名称,主营构成,映射申万分类\n")
                 f.write("\n".join(combined_csv_lines) + "\n")
 
