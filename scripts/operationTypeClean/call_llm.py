@@ -166,7 +166,7 @@ async def process_industry_task(
     company_file: Path,
     industry_code: str,
     delay: float = 6.0,  # 💡 建议设为 6.0 秒，保障 6万次大额度下不触发瞬时频控
-    max_companies_per_request: int = 30
+    max_companies_per_request: int = 60
 ) -> List[str]:
     """单个行业处理的最小单元：自动识别超长文本并分批请求 LLM，返回纯数据行列表。"""
     focus_name, companies_text = prepare_industry_companies(company_file, industry_code)
