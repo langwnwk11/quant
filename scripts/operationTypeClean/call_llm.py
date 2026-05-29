@@ -226,7 +226,7 @@ async def run_pipeline(
 
     # 初始化具备并发控制的 LLM 客户端
     llm_client = GitHubLLMClient(
-        model_name="gpt-4o-mini", max_concurrent_requests=1, max_retries=5
+        model_name="gpt-4o", max_concurrent_requests=1, max_retries=5
     )
     llm_client.set_system_prompt(system_prompt_text)
 

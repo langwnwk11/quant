@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class GitHubLLMClient:
     def __init__(
         self, 
-        model_name: str = "gpt-4o-mini", 
+        model_name: str = "gpt-4o", 
         max_concurrent_requests: int = 1, # 💡 额度再大，并发也死锁为 1，确保串行最稳
         max_retries: int = 5
     ):
