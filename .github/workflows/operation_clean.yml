@@ -92,8 +92,11 @@ jobs:
       with:
         name: mapping-result-group-${{ matrix.group_idx }}
         path: mapping_result_group_${{ matrix.group_idx }}.csv
-        retention-days: 20 # 💡 强行保存 20 天，跨天、跨周断点续传完美契合
+        retention-days: 40 # 💡 强行保存 20 天，跨天、跨周断点续传完美契合
 
+  # =====================================================================
+  # 阶段二：自动化合并所有组的结果（强力高容错版）
+  # =====================================================================
   # =====================================================================
   # 阶段二：自动化合并所有组的结果（强力高容错版）
   # =====================================================================
@@ -101,9 +104,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: data_cleaning_matrix
     
-    # 💡 终极修复：
-    # always() 保证了即使前面有组报 429 失败，本 Job 也绝不会被 Skipped。
-    # !cancelled() 保证了除非是你手动点击了 "Cancel run" 强行终止任务，否则它一定会执行！
     if: always() && !cancelled()
     
     steps:
@@ -121,12 +121,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas
 
-    # 💡 批量下载当前这次流水线中所有可用的（包括历史和本次新生成的）Artifacts
-    - name: Download All Available Group Artifacts
-      uses: actions/download-artifact@v4
-      continue-on-error: true # 防止历史没有一个组成功时导致合并步骤直接崩溃
-      with:
-        path: ./all_groups_download
+    # =====================================================================
+    # 💡 核心修复：使用 GitHub CLI 强行下载当前 RunID 下的所有产物（包括历史重试的）
+    # =====================================================================
+    - name: Download All Available Group Artifacts (Cross-Attempt Fix)
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        mkdir -p ./all_groups_download
+        echo "========================================================="
+        echo "正在通过 GitHub CLI 下载当前运行周期内的所有组件产物..."
+        echo "========================================================="
+        # gh run download 会把该流水线内所有存在的组件拉取到指定目录
+        gh run download ${{ github.run_id }} --dir ./all_groups_download
+      continue-on-error: true
 
     # 💡 用内联 Python 脚本执行高容错合并与去重
     - name: Execute Merge Script
@@ -138,8 +146,15 @@ jobs:
 
         print("=========================================================")
         print("开始搜寻并合并已完成的 CSV 文件...")
+        # 深度匹配，兼容 gh cli 和 actions/download 不同的落盘目录结构
         csv_files = glob.glob('./all_groups_download/**/*.csv', recursive=True)
+        
+        # ⚠️ 过滤掉可能重复下载到的旧的 TOTAL_RESULT 自身，防止套娃合并
+        csv_files = [f for f in csv_files if "A_share_industry_mapping_ALL" not in f]
+        
         print(f"📁 当前共成功收集到 {len(csv_files)} 个分组产物文件。")
+        for f in csv_files:
+            print(f"  - 发现有效单组文件: {f}")
         print("=========================================================")
 
         combined_df_list = []
@@ -166,7 +181,6 @@ jobs:
         EOF
 
     # 💡 检测是否生成了合并大总表，并动态写入环境变量
-    # 这是为了防止在没有任何 CSV 生成时，强行调用 upload 导致报错
     - name: Check Final File Existence
       id: check_file
       run: |
@@ -181,6 +195,6 @@ jobs:
       if: env.HAS_FINAL_FILE == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: A_share_industry_mapping_TOTAL_RESULT # 👈 最终你在网页上点击下载的总包名字
+        name: A_share_industry_mapping_TOTAL_RESULT
         path: A_share_industry_mapping_ALL.csv
-        retention-days: 10 # 最终结果保留 10 天
+        retention-days: 50
