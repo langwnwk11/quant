@@ -1,13 +1,29 @@
-name: (Manual)Financial Data Downloader
+name: (Manual)Financial Data Auto Downloader & Push to Hugging Face
 
 on:
   # schedule:
-  #   # 表达式解释：
-  #   # 分(0) 时(0) 日(8-14) 月(7) 周(0/SUN)
   #   # UTC 00:00 对应北京时间 08:00
   #   - cron: '0 0 8-14 7 0'
-  workflow_dispatch:   # 允许手动触发
-# 核心修复：防止多个 Job 同时运行导致推送到 GitHub 时发生冲突
+  workflow_dispatch:   # 允许手动触发，并加入控制参数
+    inputs:
+      task_type:
+        description: '任务类型 (0: 全量下载, 1: 失败重试)'
+        required: true
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+      by_report:
+        description: '数据渠道 (1: 按报告期-含资产负债表, 0: 按单季度-不含资产负债表)'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '0'
+
+# 核心修复：防止多个 Job 同时运行导致冲突
 concurrency:
   group: financial-data-sync-${{ github.ref }}
   cancel-in-progress: false
@@ -30,7 +46,7 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'pip'
-          cache-dependency-path: '**/requirements.txt' # 明确路径
+          cache-dependency-path: '**/requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -38,14 +54,14 @@ jobs:
 
       - name: Run Download Script
         run: |
-          # 确保目录存在
           mkdir -p output
-          # 运行你的 Python 脚本
-          python scripts/download_financials.py ${{ matrix.group_index }} 20 0
+          TASK_TYPE="${{ github.event.inputs.task_type || '0' }}"
+          BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
+          echo "Executing task with TASK_TYPE=$TASK_TYPE, BY_REPORT=$BY_REPORT"
+          python scripts/download_financials.py ${{ matrix.group_index }} 20 $TASK_TYPE $BY_REPORT
 
       - name: Compress Output
         run: |
-          # 将当前组的 output 目录压缩，命名包含组号
           zip -r group_${{ matrix.group_index }}_output.zip output/
 
       - name: Upload Artifact
@@ -55,13 +71,12 @@ jobs:
           path: group_${{ matrix.group_index }}_output.zip
           retention-days: 2
 
-  # --- 第二阶段：合并所有数据 ---
-  # --- 第二阶段：合并所有数据 ---
-  merge:
+  # --- 第二阶段：合并所有数据、执行合并脚本、备份并推送至 Hugging Face ---
+  merge-and-upload:
     needs: download
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # 允许回写日志到代码库
   
     steps:
       - name: Checkout code
@@ -69,8 +84,18 @@ jobs:
         with:
           ref: main
           fetch-depth: 0 
-          # 确保获取完整历史以支持 rebase
   
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Extra Dependencies
+        run: |
+          # 补充合并脚本和 HF 上传需要的库
+          pip install pandas pyarrow huggingface_hub
+
       - name: Download all Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -78,91 +103,79 @@ jobs:
           pattern: group-data-*
           merge-multiple: true
   
-      - name: Process and Merge Data
+      - name: Process and Merge Raw Data
         run: |
-          # 1. 创建目录结构
+          # 1. 创建干净的目录结构
           mkdir -p final_output/balance final_output/profit final_output/cash
           mkdir -p log/financial/
+          
+          rm -f raw_task.txt raw_log.txt raw_fail.txt
   
           # 2. 遍历解压并合并
-          # 使用 -q 减少日志输出，提高速度
           for zipfile in all_outputs/*.zip; do
+            [ -e "$zipfile" ] || continue
             unzip -q -o "$zipfile" -d temp_extract/
             
-            # 移动数据文件 (Parquet)
-            cp -n temp_extract/output/balance/*.parquet final_output/balance/ 2>/dev/null || true
-            cp -n temp_extract/output/profit/*.parquet final_output/profit/ 2>/dev/null || true
-            cp -n temp_extract/output/cash/*.parquet final_output/cash/ 2>/dev/null || true
+            if [ -d "temp_extract/output/balance" ]; then cp -rf temp_extract/output/balance/. final_output/balance/ 2>/dev/null || true; fi
+            if [ -d "temp_extract/output/profit" ]; then cp -rf temp_extract/output/profit/. final_output/profit/ 2>/dev/null || true; fi
+            if [ -d "temp_extract/output/cash" ]; then cp -rf temp_extract/output/cash/. final_output/cash/ 2>/dev/null || true; fi
             
-            # 【修复核心】：使用 awk 或 sed 确保每个文件合并时末尾都有换行
-            # ORS 为输出记录分隔符，确保文件衔接处不粘连
             if [ -d "temp_extract/output" ]; then
               awk '1' temp_extract/output/*_task.txt >> raw_task.txt 2>/dev/null || true
               awk '1' temp_extract/output/*_success.txt >> raw_log.txt 2>/dev/null || true
               awk '1' temp_extract/output/*_fail.txt >> raw_fail.txt 2>/dev/null || true
             fi
-            
             rm -rf temp_extract/
           done
   
           # 3. 排序去重并清理空行
-          # sed '/^$/d' 用于移除可能产生的空行，确保数据纯净
-          if [ -f raw_task.txt ]; then
-            sort -u raw_task.txt | sed '/^$/d' > log/financial/task.txt
-          else
-            touch log/financial/task.txt
-          fi
-  
-          if [ -f raw_log.txt ]; then
-            sort -u raw_log.txt | sed '/^$/d' > log/financial/log.txt
-          else
-            touch log/financial/log.txt
-          fi
-  
-          if [ -f raw_fail.txt ]; then
-            sort -u raw_fail.txt | sed '/^$/d' > log/financial/fail.txt
-          else
-            touch log/financial/fail.txt
-          fi
+          if [ -f raw_task.txt ]; then sort -u raw_task.txt | sed '/^$/d' > log/financial/task.txt; else touch log/financial/task.txt; fi
+          if [ -f raw_log.txt ]; then sort -u raw_log.txt | sed '/^$/d' > log/financial/log.txt; else touch log/financial/log.txt; fi
+          if [ -f raw_fail.txt ]; then sort -u raw_fail.txt | sed '/^$/d' > log/financial/fail.txt; else touch log/financial/fail.txt; fi
           
-          # 4. 拷贝到 Artifact 目录
+          # 4. 拷贝日志到 Artifact 目录中
           cp log/financial/*.txt final_output/
 
-      - name: Native Git Push
+      - name: Run Pandas Merge Script
         run: |
-          # 1. 配置身份
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # 2. 确保我们在正确的分支
-          git checkout main
-          
-          # 3. 添加更改到暂存区 (Staging Area)
-          git add log/financial/*.txt
-          
-          # 4. 只有在有变化时才处理
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            # 先提交本地更改，让工作区变干净
-            git commit -m "docs: update financial download logs [skip ci]"
-            
-            # 5. 关键：此时工作区已干净，执行 pull rebase 
-            # 如果远程有更新，Git 会把你的 commit 接在远程 commit 之后
-            git pull origin main --rebase
-            
-            # 6. 推送
-            git push origin main
-          fi
+          # 运行你的 Python 合并逻辑（生成大 Parquet 报表并动态创建 README.md）
+          python scripts/merge_financials.py final_output
 
-
-      
-  
-      - name: Upload Final Combined Result
+      # 【核心调整点 1】：在推送到远程网络之前，优先将最终完全体数据保存在 GitHub 官方备份中
+      - name: Upload Backup Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: finalized-financial-data
           path: final_output/
-          retention-days: 90
-    
-     
+          retention-days: 30
+
+      - name: Native Git Push (Logs Only)
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git add log/financial/*.txt
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: update financial download logs [skip ci]"
+            git pull origin main --rebase
+            git push origin main
+          fi
+
+      # 【核心调整点 2】：作为整个流水线的收尾冲刺，执行最重、最耗网速的 Hugging Face 传输
+      - name: Upload Data to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # 将最终整合完的目录(final_output)全量推送到 Hugging Face 对应的数据集仓库
+          python -c "
+          from huggingface_hub import HfApi
+          api = HfApi()
+          api.upload_folder(
+              folder_path='final_output',
+              repo_id='langwnwk/stock_finance',
+              repo_type='dataset',
+              token='${{ secrets.HF_TOKEN }}'
+          )"

@@ -48,14 +48,22 @@ def write_list_file(path, data_list):
         f.write("\n".join(sorted(list(data_list))))
 
 # --- 核心业务 ---
-def download_report_batch(codes):
+def download_report_batch(codes, by_report):
     """核心下载逻辑"""
     success_list = []
-    tasks = {
-        "balance": ak.stock_balance_sheet_by_yearly_em,
-        "profit": ak.stock_profit_sheet_by_yearly_em,
-        "cash": ak.stock_cash_flow_sheet_by_yearly_em
-    }
+    
+    # 根据 by_report 动态选择不同的接口任务
+    if by_report == 1:
+        tasks = {
+            "balance": ak.stock_balance_sheet_by_report_em,
+            "profit": ak.stock_profit_sheet_by_report_em,
+            "cash": ak.stock_cash_flow_sheet_by_report_em
+        }
+    else:  # by_report == 0
+        tasks = {
+            "profit": ak.stock_profit_sheet_by_quarterly_em,
+            "cash": ak.stock_cash_flow_sheet_by_quarterly_em
+        }
     
     for sub in tasks.keys():
         (OUTPUT_BASE / sub).mkdir(parents=True, exist_ok=True)
@@ -81,7 +89,7 @@ def download_report_batch(codes):
             success_list.append(code)
     return success_list
 
-def repair_download(group_index):
+def repair_download(group_index, by_report):
     """自愈函数：比对文件，差额补全"""
     task_file = PathHelper.get_path(group_index, "task")
     log_file = PathHelper.get_path(group_index, "log")
@@ -103,7 +111,8 @@ def repair_download(group_index):
         
         print(f"🔄 组别 {group_index} | 第 {i+1} 轮修复 | 剩余 {len(missing)} 只...")
         
-        newly_success = download_report_batch(missing)
+        # 将 by_report 传递给下载函数
+        newly_success = download_report_batch(missing, by_report)
         
         # 合并并更新成功日志
         updated_success = success_now | set(newly_success)
@@ -135,14 +144,13 @@ def load_fail_list():
     codes = sorted(list(read_list_file(data_file)))
     return codes
 
-def main(group_index, total_groups,task_type):
-    if(task_type == 1):
+def main(group_index, total_groups, task_type, by_report):
+    if task_type == 1:
         all_codes = load_fail_list() 
-        # print(all_codes)       
     else:
         all_codes = load_stock_codes()     
-    #all_codes = all_codes[:5]  # 测试阶段限制数量
-    print(len(all_codes))
+        
+    print(f"总处理代码量: {len(all_codes)}")
     avg = len(all_codes) // total_groups
     start_idx = group_index * avg
     end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
@@ -152,10 +160,17 @@ def main(group_index, total_groups,task_type):
     write_list_file(PathHelper.get_path(group_index, "task"), my_codes)
 
     # 3. 启动自愈下载
-    repair_download(group_index)
+    repair_download(group_index, by_report)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Usage: python script.py <GROUP_INDEX> <TOTAL_GROUPS>")
+    main(group_index=0, total_groups=5, task_type=0, by_report=0)
+    if len(sys.argv) < 5:
+        print("Usage: python script.py <GROUP_INDEX> <TOTAL_GROUPS> <TASK_TYPE> <BY_REPORT>")
+        print("Example: python script.py 0 5 0 1")
     else:
-        main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
+        main(
+            group_index=int(sys.argv[1]), 
+            total_groups=int(sys.argv[2]), 
+            task_type=int(sys.argv[3]), 
+            by_report=int(sys.argv[4])
+        )
