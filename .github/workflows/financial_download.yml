@@ -138,44 +138,76 @@ jobs:
 
       - name: Run Pandas Merge Script
         run: |
-          # 运行你的 Python 合并逻辑（生成大 Parquet 报表并动态创建 README.md）
-          python scripts/merge_financials.py final_output
+          # 【核心修复 1】：将 inputs.by_report 变量作为第二个参数传递给 Python
+          TASK_BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
+          python scripts/merge_financials.py final_output $TASK_BY_REPORT
 
-      # 【核心调整点 1】：在推送到远程网络之前，优先将最终完全体数据保存在 GitHub 官方备份中
+      # 【核心修复 2】：让 GitHub 备份的 Artifact 名字带上渠道标签（-1 或 -0），防止排队或多次运行时相互覆盖
       - name: Upload Backup Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
-          name: finalized-financial-data
+          name: finalized-financial-data-${{ github.event.inputs.by_report || '1' }}
           path: final_output/
           retention-days: 30
 
+      # 【核心修复 3】：区分 Git 仓库中的日志文件名，使报告期和单季度日志可以并存
       - name: Native Git Push (Logs Only)
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout main
+          
+          BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
+          SUFFIX=$([ "$BY_REPORT" = "1" ] && echo "report" || echo "quarter")
+          
+          mkdir -p log/financial/
+          mv log/financial/task.txt log/financial/task_${SUFFIX}.txt 2>/dev/null || true
+          mv log/financial/log.txt log/financial/log_${SUFFIX}.txt 2>/dev/null || true
+          mv log/financial/fail.txt log/financial/fail_${SUFFIX}.txt 2>/dev/null || true
+          
           git add log/financial/*.txt
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "docs: update financial download logs [skip ci]"
+            git commit -m "docs: update financial download logs ($SUFFIX) [skip ci]"
             git pull origin main --rebase
             git push origin main
           fi
 
-      # 【核心调整点 2】：作为整个流水线的收尾冲刺，执行最重、最耗网速的 Hugging Face 传输
+      # 【核心修复 4】：废弃 upload_folder 整体覆盖，改为单文件精准 upload_file 增量覆盖
+      # 这样无论执行哪种模式，Hugging Face 上的异模大 Parquet 文件和简化的 README 都会被安全地独立更新与并存。
       - name: Upload Data to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 将最终整合完的目录(final_output)全量推送到 Hugging Face 对应的数据集仓库
           python -c "
+          import os
           from huggingface_hub import HfApi
           api = HfApi()
-          api.upload_folder(
-              folder_path='final_output',
-              repo_id='langwnwk/stock_finance',
-              repo_type='dataset',
-              token='${{ secrets.HF_TOKEN }}'
-          )"
+          
+          # 1. 精准推送本次生成的各分类大表
+          for file in os.listdir('final_output'):
+              if file.endswith('.parquet'):
+                  file_path = os.path.join('final_output', file)
+                  print(f'正在精准推送大表至 HF: {file}')
+                  api.upload_file(
+                      path_or_fileobj=file_path,
+                      path_in_repo=file,
+                      repo_id='langwnwk/stock_finance',
+                      repo_type='dataset',
+                      token='${{ secrets.HF_TOKEN }}'
+                  )
+          
+          # 2. 精准推送极简版 README.md
+          readme_path = os.path.join('final_output', 'README.md')
+          if os.path.exists(readme_path):
+              print('正在更新全局 README.md 配置')
+              api.upload_file(
+                  path_or_fileobj=readme_path,
+                  path_in_repo='README.md',
+                  repo_id='langwnwk/stock_finance',
+                  repo_type='dataset',
+                  token='${{ secrets.HF_TOKEN }}'
+              )
+          "
