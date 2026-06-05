@@ -23,55 +23,57 @@ on:
           - '1'
           - '0'
 
-# 核心修复：防止多个 Job 同时运行导致冲突
+# 防止多个 Job 同时运行导致冲突
 concurrency:
   group: financial-data-sync-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # --- 第一阶段：分 20 组并行下载 ---
+  # --- 第一阶段：分 40 组并行下载（有效化解 6 小时超时限制） ---
   download:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-          cache-dependency-path: '**/requirements.txt'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        cache-dependency-path: '**/requirements.txt'
 
-      - name: Install dependencies
-        run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Install dependencies
+      run: |
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Download Script
-        run: |
-          mkdir -p output
-          TASK_TYPE="${{ github.event.inputs.task_type || '0' }}"
-          BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
-          echo "Executing task with TASK_TYPE=$TASK_TYPE, BY_REPORT=$BY_REPORT"
-          python scripts/download_financials.py ${{ matrix.group_index }} 20 $TASK_TYPE $BY_REPORT
+    - name: Run Download Script
+      run: |
+        mkdir -p output
+        TASK_TYPE="${{ github.event.inputs.task_type || '0' }}"
+        BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
+        echo "Executing task with TASK_TYPE=$TASK_TYPE, BY_REPORT=$BY_REPORT"
+        # 核心修改：总组数参数由 20 改为 40
+        python scripts/download_financials.py ${{ matrix.group_index }} 40 $TASK_TYPE $BY_REPORT
 
-      - name: Compress Output
-        run: |
-          zip -r group_${{ matrix.group_index }}_output.zip output/
+    - name: Compress Output
+      run: |
+        zip -r group_${{ matrix.group_index }}_output.zip output/
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: group-data-${{ matrix.group_index }}
-          path: group_${{ matrix.group_index }}_output.zip
-          retention-days: 2
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: group-data-${{ matrix.group_index }}
+        path: group_${{ matrix.group_index }}_output.zip
+        # 缩短至 1 天，合并完即失效，节约仓库空间
+        retention-days: 1
 
-  # --- 第二阶段：合并所有数据、执行合并脚本、备份并推送至 Hugging Face ---
+  # --- 第二阶段：合并 40 组数据、执行合并脚本、备份并推送至 Hugging Face ---
   merge-and-upload:
     needs: download
     runs-on: ubuntu-latest
@@ -93,7 +95,6 @@ jobs:
 
       - name: Install Extra Dependencies
         run: |
-          # 补充合并脚本和 HF 上传需要的库
           pip install pandas pyarrow huggingface_hub
 
       - name: Download all Artifacts
@@ -125,7 +126,9 @@ jobs:
               awk '1' temp_extract/output/*_success.txt >> raw_log.txt 2>/dev/null || true
               awk '1' temp_extract/output/*_fail.txt >> raw_fail.txt 2>/dev/null || true
             fi
+            # 优化：解压完立即删除临时目录和对应的 zip，释放磁盘空间
             rm -rf temp_extract/
+            rm -f "$zipfile"
           done
   
           # 3. 排序去重并清理空行
@@ -138,11 +141,9 @@ jobs:
 
       - name: Run Pandas Merge Script
         run: |
-          # 【核心修复 1】：将 inputs.by_report 变量作为第二个参数传递给 Python
           TASK_BY_REPORT="${{ github.event.inputs.by_report || '1' }}"
           python scripts/merge_financials.py final_output $TASK_BY_REPORT
 
-      # 【核心修复 2】：让 GitHub 备份的 Artifact 名字带上渠道标签（-1 或 -0），防止排队或多次运行时相互覆盖
       - name: Upload Backup Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
@@ -150,7 +151,6 @@ jobs:
           path: final_output/
           retention-days: 30
 
-      # 【核心修复 3】：区分 Git 仓库中的日志文件名，使报告期和单季度日志可以并存
       - name: Native Git Push (Logs Only)
         run: |
           git config --local user.name "github-actions[bot]"
@@ -175,8 +175,6 @@ jobs:
             git push origin main
           fi
 
-      # 【核心修复 4】：废弃 upload_folder 整体覆盖，改为单文件精准 upload_file 增量覆盖
-      # 这样无论执行哪种模式，Hugging Face 上的异模大 Parquet 文件和简化的 README 都会被安全地独立更新与并存。
       - name: Upload Data to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

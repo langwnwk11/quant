@@ -14,7 +14,6 @@ class PathHelper:
     """统一管理文件命名逻辑"""
     @staticmethod
     def get_path(group_idx, file_type):
-        # 统一命名规则: group_{idx}_{type}.txt
         mapping = {
             "task": f"group_{group_idx}_task.txt",
             "log": f"group_{group_idx}_success.txt",
@@ -31,7 +30,12 @@ class PathHelper:
 )
 def fetch_api_data(api_func, code):
     """原子操作：调用 AkShare 接口"""
-    df = api_func(symbol=code)
+    # 💡 优化：部分 AkShare 接口支持 timeout 参数，如果遇到不支持的，tenacity 会捕获异常并重试
+    try:
+        df = api_func(symbol=code, timeout=15)
+    except TypeError:
+        # 防止部分旧版/特殊接口不支持 timeout 参数
+        df = api_func(symbol=code)
     return df if (df is not None and not df.empty) else None
 
 def read_list_file(path):
@@ -52,7 +56,6 @@ def download_report_batch(codes, by_report):
     """核心下载逻辑"""
     success_list = []
     
-    # 根据 by_report 动态选择不同的接口任务
     if by_report == 1:
         tasks = {
             "balance": ak.stock_balance_sheet_by_report_em,
@@ -81,7 +84,7 @@ def download_report_batch(codes, by_report):
                     df.to_parquet(save_path)
                 else:
                     is_all_ok = False
-                time.sleep(0.5) 
+                time.sleep(0.4) # 稍微收紧一点 sleep 间隔，提升高并发效率
             except:
                 is_all_ok = False
         
@@ -111,9 +114,13 @@ def repair_download(group_index, by_report):
         
         print(f"🔄 组别 {group_index} | 第 {i+1} 轮修复 | 剩余 {len(missing)} 只...")
         
-        # 将 by_report 传递给下载函数
         newly_success = download_report_batch(missing, by_report)
         
+        # ❌ 核心修复：如果本轮努力后，没有任何一只股票死里逃生，说明网络/API挂了，直接掐断，防止无限空跑浪费时间
+        if not newly_success:
+            print(f"🛑 组别 {group_index}: 本轮修复未捞回任何有效数据，接口可能受限，提前终止自愈。")
+            break
+            
         # 合并并更新成功日志
         updated_success = success_now | set(newly_success)
         write_list_file(log_file, updated_success)
@@ -124,6 +131,7 @@ def repair_download(group_index, by_report):
             if final_missing:
                 print(f"⚠️ 达到上限，失败 {len(final_missing)} 只，记录至 {fail_file.name}")
                 write_list_file(fail_file, final_missing)
+                if fail_file.exists(): pass
             elif fail_file.exists():
                 fail_file.unlink()
 
@@ -133,7 +141,6 @@ def load_stock_codes():
     if not data_file.exists():
         print("数据文件不存在")
         return []
-    
     return pd.read_parquet(data_file)['code'].unique().tolist()
 
 def load_fail_list():
@@ -141,32 +148,43 @@ def load_fail_list():
     data_file = ROOT_DIR / "log" / "financial" / "fail.txt"
     if not data_file.exists():
         return []
-    codes = sorted(list(read_list_file(data_file)))
-    return codes
+    return sorted(list(read_list_file(data_file)))
 
 def main(group_index, total_groups, task_type, by_report):
+    # 💡 优化：每次全新启动前，先清理本组可能存在的旧成功/失败标记文件，确保完全重新统计
+    log_file = PathHelper.get_path(group_index, "log")
+    fail_file = PathHelper.get_path(group_index, "fail")
+    if log_file.exists(): log_file.unlink()
+    if fail_file.exists(): fail_file.unlink()
+
     if task_type == 1:
         all_codes = load_fail_list() 
     else:
         all_codes = load_stock_codes()     
         
     print(f"总处理代码量: {len(all_codes)}")
+    if not all_codes:
+        print("无代码需要处理，退出。")
+        return
+
+    # 40组分流逻辑
     avg = len(all_codes) // total_groups
     start_idx = group_index * avg
     end_idx = (group_index + 1) * avg if group_index != total_groups - 1 else len(all_codes)
     my_codes = all_codes[start_idx:end_idx]
 
-    # 2. 保存任务清单 (使用统一命名)
+    print(f"组别 {group_index}/{total_groups} 负责下载区间: {start_idx} 至 {end_idx} (共 {len(my_codes)} 只)")
+
+    # 2. 保存任务清单
     write_list_file(PathHelper.get_path(group_index, "task"), my_codes)
 
     # 3. 启动自愈下载
     repair_download(group_index, by_report)
 
 if __name__ == "__main__":
-    main(group_index=0, total_groups=5, task_type=0, by_report=0)
     if len(sys.argv) < 5:
         print("Usage: python script.py <GROUP_INDEX> <TOTAL_GROUPS> <TASK_TYPE> <BY_REPORT>")
-        print("Example: python script.py 0 5 0 1")
+        print("Example: python script.py 0 40 0 1")
     else:
         main(
             group_index=int(sys.argv[1]), 
