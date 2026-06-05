@@ -148,7 +148,9 @@ jobs:
         print("开始搜寻并合并已完成的 CSV 文件...")
         # 深度匹配，兼容 gh cli 和 actions/download 不同的落盘目录结构
         csv_files = glob.glob('./all_groups_download/**/*.csv', recursive=True)
-        
+        if csv_files:
+            for i, f in enumerate(csv_files):
+                print(f"  [{i}] -> {f}")
         # ⚠️ 过滤掉可能重复下载到的旧的 TOTAL_RESULT 自身，防止套娃合并
         csv_files = [f for f in csv_files if "A_share_industry_mapping_ALL" not in f]
         
