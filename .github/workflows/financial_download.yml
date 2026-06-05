@@ -161,11 +161,14 @@ jobs:
           SUFFIX=$([ "$BY_REPORT" = "1" ] && echo "report" || echo "quarter")
           
           mkdir -p log/financial/
+          
+          # Use git mv if they are already tracked, or keep your mv logic but add properly later
           mv log/financial/task.txt log/financial/task_${SUFFIX}.txt 2>/dev/null || true
           mv log/financial/log.txt log/financial/log_${SUFFIX}.txt 2>/dev/null || true
           mv log/financial/fail.txt log/financial/fail_${SUFFIX}.txt 2>/dev/null || true
           
-          git add log/financial/*.txt
+          # CRITICAL FIX: Stage everything (including deletions) in the log directory
+          git add log/financial/
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
