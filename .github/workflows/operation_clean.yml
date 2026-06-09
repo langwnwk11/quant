@@ -1,20 +1,17 @@
 name: (Manual)A-Share Industry Mapping Pipeline (20 Groups & Auto Merge)
 
 on:
-  workflow_dispatch: # 仅保留手动触发
+  workflow_dispatch: 
 
 jobs:
   # =====================================================================
-  # 阶段一：分批跑数（20个组排队跑，带增量断点续传功能）
+  # 阶段一：分批跑数（保持不变，死磕 429，中途熔断也强制存 Cache 供下次续传）
   # =====================================================================
   data_cleaning_matrix:
     runs-on: ubuntu-latest
-    # 💡 极其重要：即使某一组彻底失败了（如由于429触发熔断），也不要掐断整个 Workflow，
-    # 让后面的组继续排队尝试下载或跑数，这样可以实现“蚂蚁搬家”式的增量清洗。
     continue-on-error: true 
     
     strategy:
-      # 免费 LLM 限流严格，锁死为 1（完全串行排队）是最安全、防刷最稳的选择。
       max-parallel: 1 
       matrix:
         group_idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
@@ -23,59 +20,27 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    # =====================================================================
-    # 🕵️‍♂️ 增量核心步骤 1：尝试去拉取当前 Group 在历史运行中可能已经成功过的 Artifact
-    # =====================================================================
-    - name: Try to Download Historical Group Artifact
-      id: check_artifact
-      uses: actions/download-artifact@v4
-      continue-on-error: true # 💡 如果之前没成功过，GitHub 会报 404，这里必须允许它报错并继续
+    - name: Try to Restore Group Cache
+      id: check_cache
+      uses: actions/cache/restore@v4
       with:
-        name: mapping-result-group-${{ matrix.group_idx }}
-        path: ./ # 确保下载回来的 CSV 直接落盘在工作流根目录
+        path: mapping_result_group_${{ matrix.group_idx }}.csv
+        key: ashare-mapping-group-${{ matrix.group_idx }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ashare-mapping-group-${{ matrix.group_idx }}-
 
-    # =====================================================================
-    # 🕵️‍♂️ 增量核心步骤 2：检查本地是否存在下载下来的 CSV 文件，并生成控制 Flag
-    # =====================================================================
-    - name: Determine if Skip LLM is Needed
-      id: skip_trigger
-      run: |
-        EXPECTED_FILE="mapping_result_group_${{ matrix.group_idx }}.csv"
-        if [ -f "$EXPECTED_FILE" ]; then
-          echo "========================================================="
-          echo "📊 状态：[命中历史缓存] 发现组 ${{ matrix.group_idx }} 留下的成功产物！"
-          echo "🚀 决定：本次运行将直接跳过大模型调用，直接优雅结束。"
-          echo "========================================================="
-          echo "should_skip=true" >> $GITHUB_OUTPUT
-        else
-          echo "========================================================="
-          echo "🔍 状态：[无可用历史缓存] 组 ${{ matrix.group_idx }} 历史上未完成映射。"
-          echo "🛠️ 决定：本组将激活正常的 Python 脚本与大模型数据清洗流程。"
-          echo "========================================================="
-          echo "should_skip=false" >> $GITHUB_OUTPUT
-        fi
-
-    # =====================================================================
-    # 🛠️ 环境准备：仅在【未命中缓存，需要跑数】时才配置 Python 环境和缓存
-    # =====================================================================
     - name: Set up Python
-      if: steps.skip_trigger.outputs.should_skip != 'true'
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         cache: 'pip'
 
     - name: Install Dependencies
-      if: steps.skip_trigger.outputs.should_skip != 'true'
       run: |
         python -m pip install --upgrade pip
         pip install pandas pyarrow openai tenacity langchain_core
 
-    # =====================================================================
-    # 🚀 业务执行：仅在【未命中缓存，需要跑数】时才真正运行 Python 脚本
-    # =====================================================================
     - name: Run Data Cleaning Script
-      if: steps.skip_trigger.outputs.should_skip != 'true'
       env:
         MYGITHUB_TOKEN: ${{ secrets.MYGITHUB_TOKEN }}
         STRATEGY_GROUP_IDX: ${{ matrix.group_idx }}
@@ -83,27 +48,27 @@ jobs:
       run: |
         python scripts/operationTypeClean/call_llm.py
 
-    # =====================================================================
-    # 📤 产物留存：仅在【新跑数成功】的情况下，才重新上传到 Artifact 备份
-    # =====================================================================
-    - name: Upload Group Result Artifact
-      if: steps.skip_trigger.outputs.should_skip != 'true'
+    - name: Save Group Cache
+      if: always() 
+      uses: actions/cache/save@v4
+      with:
+        path: mapping_result_group_${{ matrix.group_idx }}.csv
+        key: ashare-mapping-group-${{ matrix.group_idx }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+    - name: Upload Group Result Artifact (For Merge Job)
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: mapping-result-group-${{ matrix.group_idx }}
         path: mapping_result_group_${{ matrix.group_idx }}.csv
-        retention-days: 40 # 💡 强行保存 20 天，跨天、跨周断点续传完美契合
+        retention-days: 3  # 💡 仅作为内部传递的临时碎片，设为 3 天足矣，省空间
 
   # =====================================================================
-  # 阶段二：自动化合并所有组的结果（强力高容错版）
-  # =====================================================================
-  # =====================================================================
-  # 阶段二：自动化合并所有组的结果（强力高容错版）
+  # 阶段二：自动化合并（强力点名版：不满 20 个组绝不放行上传）
   # =====================================================================
   merge_results:
     runs-on: ubuntu-latest
     needs: data_cleaning_matrix
-    
     if: always() && !cancelled()
     
     steps:
@@ -121,82 +86,74 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas
 
-    # =====================================================================
-    # 💡 核心修复：使用 GitHub CLI 强行下载当前 RunID 下的所有产物（包括历史重试的）
-    # =====================================================================
-    - name: Download All Available Group Artifacts (Cross-Attempt Fix)
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        mkdir -p ./all_groups_download
-        echo "========================================================="
-        echo "正在通过 GitHub CLI 下载当前运行周期内的所有组件产物..."
-        echo "========================================================="
-        # gh run download 会把该流水线内所有存在的组件拉取到指定目录
-        gh run download ${{ github.run_id }} --dir ./all_groups_download
+    - name: Download All Available Group Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./all_groups_download
       continue-on-error: true
 
-    # 💡 用内联 Python 脚本执行高容错合并与去重
-    - name: Execute Merge Script
+    # 💡 核心改变：不仅合并数据，还要在这里清点人数
+    - name: Execute Merge & Gatekeeper Check
+      id: merge_gate
       run: |
         python - <<EOF
         import os
         import pandas as pd
         import glob
+        import sys
 
         print("=========================================================")
-        print("开始搜寻并合并已完成的 CSV 文件...")
-        # 深度匹配，兼容 gh cli 和 actions/download 不同的落盘目录结构
+        print("🕵️ 正在检索并校验 20 个分组的产物完整性...")
         csv_files = glob.glob('./all_groups_download/**/*.csv', recursive=True)
-        if csv_files:
-            for i, f in enumerate(csv_files):
-                print(f"  [{i}] -> {f}")
-        # ⚠️ 过滤掉可能重复下载到的旧的 TOTAL_RESULT 自身，防止套娃合并
         csv_files = [f for f in csv_files if "A_share_industry_mapping_ALL" not in f]
         
-        print(f"📁 当前共成功收集到 {len(csv_files)} 个分组产物文件。")
+        # 1. 过滤掉完全没有有效数据的哑弹（或者字节数极小的空表头文件）
+        valid_files = []
         for f in csv_files:
-            print(f"  - 发现有效单组文件: {f}")
+            try:
+                if os.path.getsize(f) > 45: # 大于45字节说明不是纯表头，有实料
+                    valid_files.append(f)
+            except:
+                pass
+
+        total_valid_count = len(valid_files)
+        print(f"📁 本次成功收集到有效的分组数据碎片数量: {total_valid_count} / 20")
         print("=========================================================")
 
-        combined_df_list = []
-        for file in csv_files:
-            try:
-                df = pd.read_csv(file)
-                if not df.empty:
-                    combined_df_list.append(df)
-            except Exception as e:
-                print(f"读取文件 {file} 失败: {e}")
+        # 2. 🚨 核心拦截逻辑：如果不满 20 个组，说明还有组在熔断死磕中，拒绝生成并报警告
+        if total_valid_count < 20:
+            print("❌ [未全员通关拦截] 当前仍有分组未彻底跑完。")
+            print("💡 提示：前序已跑出的数据已安全进入 Cache，请等待下一次手动触发或重试。")
+            print("🛑 决定：本次运行拒绝合成大总表，拒绝提供下载入口。")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                print("RUN_STATUS=INCOMPLETE", file=fh)
+            sys.exit(0) # 优雅退出，不让整个工作流爆红，但成功卡住上传
 
-        if combined_df_list:
-            final_df = pd.concat(combined_df_list, ignore_index=True)
-            
-            # 证券数据去重风控，保障主键唯一
-            final_df.drop_duplicates(subset=['公司名称', '主营构成'], keep='first', inplace=True)
-            
-            output_file = "A_share_industry_mapping_ALL.csv"
-            final_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-            print(f"🎉 阶段性数据合并成功！当前总表中已汇聚总量: {len(final_df)} 行。")
-            print(f"💾 合并结果已保存至本地: {output_file}")
-        else:
-            print("❌ 警告：当前未下载到任何有效的历史分组数据，无需执行合并。")
+        # 3. 只有 20 个组全员满血归队，才允许进入合流
+        print("🎉 [大满贯验证成功] 20个分组全部圆满清洗完毕！开始构建终极总表...")
+        combined_df_list = []
+        for file in valid_files:
+            df = pd.read_csv(file)
+            combined_df_list.append(df)
+
+        final_df = pd.concat(combined_df_list, ignore_index=True)
+        final_df.drop_duplicates(subset=['公司名称', '主营构成'], keep='first', inplace=True)
+        
+        output_file = "A_share_industry_mapping_ALL.csv"
+        final_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"💾 终极总表构建成功，包含 {len(final_df)} 行干净证券映射数据。")
+        
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+            print("RUN_STATUS=SUCCESS", file=fh)
         EOF
 
-    # 💡 检测是否生成了合并大总表，并动态写入环境变量
-    - name: Check Final File Existence
-      id: check_file
-      run: |
-        if [ -f "A_share_industry_mapping_ALL.csv" ]; then
-          echo "HAS_FINAL_FILE=true" >> $GITHUB_ENV
-        else
-          echo "HAS_FINAL_FILE=false" >> $GITHUB_ENV
-        fi
-
-    # 💡 只有本地真正合并出了大总表，才上传最终的 TOTAL 结果
+    # =====================================================================
+    # 📤 终极放行卡口：只有上面的 RUN_STATUS 明确等于 SUCCESS（即20组全满）才上传！
+    # =====================================================================
     - name: Upload Final Consolidated Artifact Action
-      if: env.HAS_FINAL_FILE == 'true'
+      if: steps.merge_gate.outputs.RUN_STATUS == 'SUCCESS'
       uses: actions/upload-artifact@v4
       with:
         name: A_share_industry_mapping_TOTAL_RESULT
         path: A_share_industry_mapping_ALL.csv
-        retention-days: 50
+        retention-days: 14
